@@ -53,6 +53,7 @@ install:
 	brew install ollama
 	brew install mplayer
 	brew install pgcli
+	brew install uv
 
 docker:
 	docker pull mongodb/mongodb-atlas-local
@@ -64,6 +65,10 @@ ollama-pull:
 	ollama pull llama3.2
 	ollama pull gemma2:27b
 	ollama pull llama3.2-vision
+
+python-install:
+	rm -rf .venv
+	uv venv --python 3.12 && uv lock && uv sync
 
 # ==============================================================================
 # Manage project
@@ -105,7 +110,24 @@ openwebui:
 	open -a "Google Chrome" http://localhost:3000/
 
 # ==============================================================================
-# Modules support
+# VLLM
+
+vllm-install:
+	uv pip install vllm
+
+vllm-run:
+	uv run vllm serve "meta-llama/Llama-3.2-1B-Instruct"
+
+vllm-test:
+	curl -X POST "http://localhost:8000/v1/chat/completions" \
+		-H "Content-Type: application/json" \
+		--data '{ \
+			"model": "meta-llama/Llama-3.2-1B-Instruct", \
+			"messages": [{"role": "user", "content": "Who are you?"}] \
+		}'
+
+# ==============================================================================
+# Go Modules support
 
 tidy:
 	go mod tidy
@@ -115,3 +137,15 @@ deps-upgrade:
 	go get -u -v ./...
 	go mod tidy
 	go mod vendor
+
+# ==============================================================================
+# Python Dependencies
+
+deps-python-sync:
+	uv sync
+
+deps-python-upgrade:
+	uv lock --upgrade && uv sync
+
+deps-python-outdated:
+	uv pip list --outdated
