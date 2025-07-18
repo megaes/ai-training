@@ -57,7 +57,7 @@ install:
 
 docker:
 	docker pull mongodb/mongodb-atlas-local
-	docker pull dyrnq/open-webui:main
+	docker pull dyrnq/open-webui:latest
 	docker pull postgres:17.5
 
 ollama-pull:
@@ -111,19 +111,30 @@ openwebui:
 
 # ==============================================================================
 # VLLM
+# You need to add this to your .env file
+# 	export VLLM_CPU_KVCACHE_SPACE=26
 
 vllm-install:
 	uv pip install vllm
 
 vllm-run:
-	uv run vllm serve "meta-llama/Llama-3.2-1B-Instruct"
+	source .env && uv run vllm serve --host 0.0.0.0 --port 8000 "NousResearch/Hermes-3-Llama-3.1-8B"
+
+vllm-compose-up:
+	docker compose -f zarf/docker/compose-owu-vllm.yaml up
+
+vllm-compose-down:
+	docker compose -f zarf/docker/compose-owi-vllm.yaml down
 
 vllm-test:
 	curl -X POST "http://localhost:8000/v1/chat/completions" \
 		-H "Content-Type: application/json" \
 		--data '{ \
-			"model": "meta-llama/Llama-3.2-1B-Instruct", \
-			"messages": [{"role": "user", "content": "Who are you?"}] \
+			"model": "NousResearch/Hermes-3-Llama-3.1-8B", \
+			"messages": [ \
+				{"role": "system", "content": [{"type": "text", "text": "You are an expert developer and you are helping the user with their question."}]}, \
+				{"role": "user", "content": [{"type": "text", "text": "How do you declare a variable in Python?"}]} \
+			] \
 		}'
 
 # ==============================================================================
