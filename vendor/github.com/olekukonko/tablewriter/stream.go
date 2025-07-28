@@ -1,11 +1,10 @@
 package tablewriter
 
 import (
-	"fmt"
 	"github.com/olekukonko/errors"
+	"github.com/olekukonko/tablewriter/pkg/twwidth"
 	"github.com/olekukonko/tablewriter/tw"
 	"math"
-	"strings"
 )
 
 // Close finalizes the table stream.
@@ -22,7 +21,7 @@ func (t *Table) Close() error {
 		// If we always call renderer.Close(), ensure it's safe if renderer.Start() wasn't called.
 		// Let's only call renderer.Close if stream was started.
 		if t.hasPrinted && t.renderer != nil { // Check if renderer is not nil for safety
-			t.renderer.Close(t.writer) // Still call renderer's close for cleanup
+			t.renderer.Close() // Still call renderer's close for cleanup
 		}
 		t.hasPrinted = false // Reset flag
 		return nil
@@ -32,7 +31,7 @@ func (t *Table) Close() error {
 	if len(t.streamFooterLines) > 0 {
 		t.logger.Debug("Close(): Rendering stored footer.")
 		if err := t.streamRenderFooter(t.streamFooterLines); err != nil {
-			t.logger.Error("Close(): Failed to render stream footer: %v", err)
+			t.logger.Errorf("Close(): Failed to render stream footer: %v", err)
 			// Continue to try and close renderer and render bottom border
 		}
 	}
@@ -40,14 +39,14 @@ func (t *Table) Close() error {
 	// Render the final table bottom border
 	t.logger.Debug("Close(): Rendering stream bottom border.")
 	if err := t.streamRenderBottomBorder(); err != nil {
-		t.logger.Error("Close(): Failed to render stream bottom border: %v", err)
+		t.logger.Errorf("Close(): Failed to render stream bottom border: %v", err)
 		// Continue to try and close renderer
 	}
 
 	// Call the underlying renderer's Close method
-	err := t.renderer.Close(t.writer)
+	err := t.renderer.Close()
 	if err != nil {
-		t.logger.Error("Renderer.Close() failed: %v", err)
+		t.logger.Errorf("Renderer.Close() failed: %v", err)
 	}
 
 	// Reset streaming state
@@ -90,7 +89,7 @@ func (t *Table) Start() error {
 	if !t.renderer.Config().Streaming {
 		// Check if the configured renderer actually supports streaming.
 		t.logger.Error("Configured renderer does not support streaming.")
-		return fmt.Errorf("renderer does not support streaming")
+		return errors.Newf("renderer does not support streaming")
 	}
 
 	//t.renderer.Start(t.writer)
@@ -114,10 +113,10 @@ func (t *Table) Start() error {
 
 	// Calculate initial fixed widths if provided in StreamConfig.Widths
 	// These widths will be used for all subsequent rendering in streaming mode.
-	if t.config.Stream.Widths.PerColumn != nil && t.config.Stream.Widths.PerColumn.Len() > 0 {
+	if t.config.Widths.PerColumn != nil && t.config.Widths.PerColumn.Len() > 0 {
 		// Use per-column stream widths if set
-		t.logger.Debug("Using per-column stream widths from StreamConfig: %v", t.config.Stream.Widths.PerColumn)
-		t.streamWidths = t.config.Stream.Widths.PerColumn.Clone()
+		t.logger.Debugf("Using per-column stream widths from StreamConfig: %v", t.config.Widths.PerColumn)
+		t.streamWidths = t.config.Widths.PerColumn.Clone()
 		// Determine numCols from the highest index in PerColumn map
 		maxColIdx := -1
 		t.streamWidths.Each(func(col int, width int) {
@@ -133,21 +132,21 @@ func (t *Table) Start() error {
 		})
 		if maxColIdx >= 0 {
 			t.streamNumCols = maxColIdx + 1
-			t.logger.Debug("Derived streamNumCols from PerColumn widths: %d", t.streamNumCols)
+			t.logger.Debugf("Derived streamNumCols from PerColumn widths: %d", t.streamNumCols)
 		} else {
 			// PerColumn map exists but is empty? Or all negative widths? Assume 0 columns for now.
 			t.streamNumCols = 0
-			t.logger.Debug("PerColumn widths map is effectively empty or contains only negative values, streamNumCols = 0.")
+			t.logger.Debugf("PerColumn widths map is effectively empty or contains only negative values, streamNumCols = 0.")
 		}
 
-	} else if t.config.Stream.Widths.Global > 0 {
+	} else if t.config.Widths.Global > 0 {
 		// Global width is set, but we don't know the number of columns yet.
 		// Defer applying global width until the first data (Header or first Row) arrives.
 		// Store a placeholder or flag indicating global width should be used.
 		// The simple way for now: Keep streamWidths empty, signal the global width preference.
 		// The width calculation function called later will need to check StreamConfig.Widths.Global
 		// if streamWidths is empty.
-		t.logger.Debug("Global stream width %d set in StreamConfig. Will derive numCols from first data.", t.config.Stream.Widths.Global)
+		t.logger.Debugf("Global stream width %d set in StreamConfig. Will derive numCols from first data.", t.config.Widths.Global)
 		t.streamWidths = tw.NewMapper[int, int]() // Initialize as empty, will be populated later
 		// Note: No need to store Global width value here, it's available in t.config.Stream.Widths.Global
 
@@ -161,13 +160,13 @@ func (t *Table) Start() error {
 	// Log warnings if incompatible features are enabled in streaming config
 	// Vertical/Hierarchical merges require processing all rows together.
 	if t.config.Header.Formatting.MergeMode&(tw.MergeVertical|tw.MergeHierarchical) != 0 {
-		t.logger.Warn("Vertical or Hierarchical merge modes enabled on Header config (%d) but are unsupported in streaming mode. Only Horizontal merge will be considered.", t.config.Header.Formatting.MergeMode)
+		t.logger.Warnf("Vertical or Hierarchical merge modes enabled on Header config (%d) but are unsupported in streaming mode. Only Horizontal merge will be considered.", t.config.Header.Formatting.MergeMode)
 	}
 	if t.config.Row.Formatting.MergeMode&(tw.MergeVertical|tw.MergeHierarchical) != 0 {
-		t.logger.Warn("Vertical or Hierarchical merge modes enabled on Row config (%d) but are unsupported in streaming mode. Only Horizontal merge will be considered.", t.config.Row.Formatting.MergeMode)
+		t.logger.Warnf("Vertical or Hierarchical merge modes enabled on Row config (%d) but are unsupported in streaming mode. Only Horizontal merge will be considered.", t.config.Row.Formatting.MergeMode)
 	}
 	if t.config.Footer.Formatting.MergeMode&(tw.MergeVertical|tw.MergeHierarchical) != 0 {
-		t.logger.Warn("Vertical or Hierarchical merge modes enabled on Footer config (%d) but are unsupported in streaming mode. Only Horizontal merge will be considered.", t.config.Footer.Formatting.MergeMode)
+		t.logger.Warnf("Vertical or Hierarchical merge modes enabled on Footer config (%d) but are unsupported in streaming mode. Only Horizontal merge will be considered.", t.config.Footer.Formatting.MergeMode)
 	}
 	// AutoHide requires processing all row data to find empty columns.
 	if t.config.Behavior.AutoHide.Enabled() {
@@ -189,7 +188,7 @@ func (t *Table) Start() error {
 		t.streamFooterLines = nil
 		t.streamWidths = tw.NewMapper[int, int]() // Clear any widths that might have been set
 		t.streamNumCols = 0
-		t.logger.Error("Renderer.Start() failed: %v. Streaming initialization failed.", err)
+		t.logger.Errorf("Renderer.Start() failed: %v. Streaming initialization failed.", err)
 	}
 	return err
 }
@@ -199,7 +198,7 @@ func (t *Table) Start() error {
 // and updates streaming state.
 // It assumes Start() has already been called and t.hasPrinted is true.
 func (t *Table) streamAppendRow(row interface{}) error {
-	t.logger.Debug("streamAppendRow called with row: %v (type: %T)", row, row)
+	t.logger.Debugf("streamAppendRow called with row: %v (type: %T)", row, row)
 
 	if !t.config.Stream.Enable {
 		return errors.New("streaming mode is disabled")
@@ -207,8 +206,8 @@ func (t *Table) streamAppendRow(row interface{}) error {
 
 	rawCellsSlice, err := t.convertCellsToStrings(row, t.config.Row)
 	if err != nil {
-		t.logger.Error("streamAppendRow: Failed to convert row to strings: %v", err)
-		return fmt.Errorf("failed to convert row to strings: %w", err)
+		t.logger.Errorf("streamAppendRow: Failed to convert row to strings: %v", err)
+		return errors.Newf("failed to convert row to strings").Wrap(err)
 	}
 
 	if len(rawCellsSlice) == 0 {
@@ -221,21 +220,34 @@ func (t *Table) streamAppendRow(row interface{}) error {
 	}
 
 	if err := t.ensureStreamWidthsCalculated(rawCellsSlice, t.config.Row); err != nil {
-		return err
+		return errors.New("failed to establish stream column count/widths").Wrap(err)
 	}
 
-	if t.streamNumCols > 0 && len(rawCellsSlice) != t.streamNumCols {
-		t.logger.Warn("streamAppendRow: Input row column count (%d) != stream column count (%d). Padding/Truncating.", len(rawCellsSlice), t.streamNumCols)
-		if len(rawCellsSlice) < t.streamNumCols {
-			paddedCells := make([]string, t.streamNumCols)
-			copy(paddedCells, rawCellsSlice)
-			for i := len(rawCellsSlice); i < t.streamNumCols; i++ {
-				paddedCells[i] = tw.Empty
+	// Now, check for column mismatch if a column count has been established.
+	if t.streamNumCols > 0 {
+		if len(rawCellsSlice) != t.streamNumCols {
+			if t.config.Stream.StrictColumns {
+				err := errors.Newf("input row column count (%d) does not match established stream column count (%d) and StrictColumns is enabled", len(rawCellsSlice), t.streamNumCols)
+				t.logger.Error(err.Error())
+				return err
 			}
-			rawCellsSlice = paddedCells
-		} else {
-			rawCellsSlice = rawCellsSlice[:t.streamNumCols]
+			// If not strict, retain the old lenient behavior (warn and pad/truncate)
+			t.logger.Warnf("streamAppendRow: Input row column count (%d) != stream column count (%d). Padding/Truncating (StrictColumns is false).", len(rawCellsSlice), t.streamNumCols)
+			if len(rawCellsSlice) < t.streamNumCols {
+				paddedCells := make([]string, t.streamNumCols)
+				copy(paddedCells, rawCellsSlice)
+				for i := len(rawCellsSlice); i < t.streamNumCols; i++ {
+					paddedCells[i] = tw.Empty
+				}
+				rawCellsSlice = paddedCells
+			} else {
+				rawCellsSlice = rawCellsSlice[:t.streamNumCols]
+			}
 		}
+	} else if len(rawCellsSlice) > 0 && t.config.Stream.StrictColumns {
+		err := errors.Newf("failed to establish stream column count from first data row (%d cells) and StrictColumns is enabled", len(rawCellsSlice))
+		t.logger.Error(err.Error())
+		return err
 	}
 
 	if t.streamNumCols == 0 {
@@ -245,7 +257,7 @@ func (t *Table) streamAppendRow(row interface{}) error {
 
 	_, rowMerges, _ := t.prepareWithMerges([][]string{rawCellsSlice}, t.config.Row, tw.Row)
 	processedRowLines := t.prepareContent(rawCellsSlice, t.config.Row)
-	t.logger.Debug("streamAppendRow: Processed row lines: %d lines", len(processedRowLines))
+	t.logger.Debugf("streamAppendRow: Processed row lines: %d lines", len(processedRowLines))
 
 	f := t.renderer
 	cfg := t.renderer.Config()
@@ -260,7 +272,7 @@ func (t *Table) streamAppendRow(row interface{}) error {
 				)
 				nextCellsCtx = firstRowLineResp.cells
 			}
-			f.Line(t.writer, tw.Formatting{
+			f.Line(tw.Formatting{
 				Row: tw.RowContext{
 					Widths:       t.streamWidths,
 					ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -284,21 +296,21 @@ func (t *Table) streamAppendRow(row interface{}) error {
 	if len(rawCellsSlice) > 0 {
 		firstCellForLog = rawCellsSlice[0]
 	}
-	t.logger.Debug("streamAppendRow: Separator Pre-Check for row starting with '%s': headerRendered=%v, firstRowRendered=%v, ShowHeaderLine=%v, BetweenRows=%v, lastRenderedPos=%q",
+	t.logger.Debugf("streamAppendRow: Separator Pre-Check for row starting with '%s': headerRendered=%v, firstRowRendered=%v, ShowHeaderLine=%v, BetweenRows=%v, lastRenderedPos=%q",
 		firstCellForLog, t.headerRendered, t.firstRowRendered, cfg.Settings.Lines.ShowHeaderLine.Enabled(),
 		cfg.Settings.Separators.BetweenRows.Enabled(), t.lastRenderedPosition)
-	t.logger.Debug("streamAppendRow: Separator Decision Flags for row starting with '%s': shouldDrawHeaderRowSeparator=%v, shouldDrawRowRowSeparator=%v",
+	t.logger.Debugf("streamAppendRow: Separator Decision Flags for row starting with '%s': shouldDrawHeaderRowSeparator=%v, shouldDrawRowRowSeparator=%v",
 		firstCellForLog, shouldDrawHeaderRowSeparator, shouldDrawRowRowSeparator)
 
 	if (shouldDrawHeaderRowSeparator || shouldDrawRowRowSeparator) && t.lastRenderedPosition != tw.Position("separator") {
-		t.logger.Debug("streamAppendRow: Rendering separator line for row starting with '%s'.", firstCellForLog)
+		t.logger.Debugf("streamAppendRow: Rendering separator line for row starting with '%s'.", firstCellForLog)
 		prevCellsCtx := t.streamRenderedMergeState(t.lastRenderedLineContent, t.lastRenderedMergeState)
 		var nextCellsCtx map[int]tw.CellContext
 		if len(processedRowLines) > 0 {
 			firstRowLineResp := t.streamBuildCellContexts(tw.Row, 0, 0, processedRowLines, rowMerges, t.config.Row)
 			nextCellsCtx = firstRowLineResp.cells
 		}
-		f.Line(t.writer, tw.Formatting{
+		f.Line(tw.Formatting{
 			Row: tw.RowContext{
 				Widths:       t.streamWidths,
 				ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -326,14 +338,14 @@ func (t *Table) streamAppendRow(row interface{}) error {
 		} else {
 			details = "an unexpected combination of conditions"
 		}
-		t.logger.Debug("streamAppendRow: Separator not drawn for row '%s' because %s.", firstCellForLog, details)
+		t.logger.Debugf("streamAppendRow: Separator not drawn for row '%s' because %s.", firstCellForLog, details)
 	}
 
 	if len(processedRowLines) == 0 {
-		t.logger.Debug("streamAppendRow: No processed row lines to render for row starting with '%s'.", firstCellForLog)
+		t.logger.Debugf("streamAppendRow: No processed row lines to render for row starting with '%s'.", firstCellForLog)
 		if !t.firstRowRendered {
 			t.firstRowRendered = true
-			t.logger.Debug("streamAppendRow: Marked first row rendered (empty content after processing).")
+			t.logger.Debugf("streamAppendRow: Marked first row rendered (empty content after processing).")
 		}
 		return nil
 	}
@@ -342,7 +354,7 @@ func (t *Table) streamAppendRow(row interface{}) error {
 	for i := 0; i < totalRowLines; i++ {
 		resp := t.streamBuildCellContexts(tw.Row, 0, i, processedRowLines, rowMerges, t.config.Row)
 		t.logger.Debug("streamAppendRow: Rendering row line %d/%d with location %v for row starting with '%s'.", i, totalRowLines, resp.location, firstCellForLog)
-		f.Row(t.writer, resp.cellsContent, tw.Formatting{
+		f.Row(resp.cellsContent, tw.Formatting{
 			Row: tw.RowContext{
 				Widths:       t.streamWidths,
 				ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -409,7 +421,7 @@ func (t *Table) streamBuildCellContexts(
 	if lineIdx >= 0 && lineIdx < len(processedLines) {
 		currentLineContent = padLine(processedLines[lineIdx], t.streamNumCols)
 	} else {
-		t.logger.Warn("streamBuildCellContexts: lineIdx %d out of bounds for processedLines (len %d) at position %s, rowIdx %d. Using empty line.", lineIdx, len(processedLines), position, rowIdx)
+		t.logger.Warnf("streamBuildCellContexts: lineIdx %d out of bounds for processedLines (len %d) at position %s, rowIdx %d. Using empty line.", lineIdx, len(processedLines), position, rowIdx)
 		for j := range currentLineContent {
 			currentLineContent[j] = tw.Empty
 		}
@@ -452,26 +464,26 @@ func (t *Table) streamBuildCellContexts(
 // The paddingConfig should be the CellPadding config relevant to the sample data (Header/Row/Footer).
 // Returns the determined number of columns.
 // This function should only be called when t.streamWidths is currently empty.
-func (t *Table) streamCalculateWidths(sampleDataLines []string, sectionConfigForSampleData tw.CellConfig) int {
+func (t *Table) streamCalculateWidths(sampling []string, config tw.CellConfig) int {
 	if t.streamWidths != nil && t.streamWidths.Len() > 0 {
 		t.logger.Debug("streamCalculateWidths: Called when streaming widths are already set (%d columns). Reusing existing.", t.streamNumCols)
 		return t.streamNumCols
 	}
 
-	t.logger.Debug("streamCalculateWidths: Calculating streaming widths. Sample data cells: %d. Using section config: %+v", len(sampleDataLines), sectionConfigForSampleData.Formatting)
+	t.logger.Debug("streamCalculateWidths: Calculating streaming widths. Sample data cells: %d. Using section config: %+v", len(sampling), config.Formatting)
 
 	determinedNumCols := 0
-	if t.config.Stream.Widths.PerColumn != nil && t.config.Stream.Widths.PerColumn.Len() > 0 {
+	if t.config.Widths.PerColumn != nil && t.config.Widths.PerColumn.Len() > 0 {
 		maxColIdx := -1
-		t.config.Stream.Widths.PerColumn.Each(func(col int, width int) {
+		t.config.Widths.PerColumn.Each(func(col int, width int) {
 			if col > maxColIdx {
 				maxColIdx = col
 			}
 		})
 		determinedNumCols = maxColIdx + 1
 		t.logger.Debug("streamCalculateWidths: Determined numCols (%d) from StreamConfig.Widths.PerColumn", determinedNumCols)
-	} else if len(sampleDataLines) > 0 {
-		determinedNumCols = len(sampleDataLines)
+	} else if len(sampling) > 0 {
+		determinedNumCols = len(sampling)
 		t.logger.Debug("streamCalculateWidths: Determined numCols (%d) from sample data length", determinedNumCols)
 	} else {
 		t.logger.Debug("streamCalculateWidths: Cannot determine numCols (no PerColumn config, no sample data)")
@@ -483,14 +495,14 @@ func (t *Table) streamCalculateWidths(sampleDataLines []string, sectionConfigFor
 	t.streamNumCols = determinedNumCols
 	t.streamWidths = tw.NewMapper[int, int]()
 
-	// Use padding and autowrap from the provided sectionConfigForSampleData
-	paddingForWidthCalc := sectionConfigForSampleData.Padding
-	autoWrapForWidthCalc := sectionConfigForSampleData.Formatting.AutoWrap
+	// Use padding and autowrap from the provided config
+	paddingForWidthCalc := config.Padding
+	autoWrapForWidthCalc := config.Formatting.AutoWrap
 
-	if t.config.Stream.Widths.PerColumn != nil && t.config.Stream.Widths.PerColumn.Len() > 0 {
+	if t.config.Widths.PerColumn != nil && t.config.Widths.PerColumn.Len() > 0 {
 		t.logger.Debug("streamCalculateWidths: Using widths from StreamConfig.Widths.PerColumn")
 		for i := 0; i < t.streamNumCols; i++ {
-			width, ok := t.config.Stream.Widths.PerColumn.OK(i)
+			width, ok := t.config.Widths.PerColumn.OK(i)
 			if !ok {
 				width = 0
 			}
@@ -502,20 +514,20 @@ func (t *Table) streamCalculateWidths(sampleDataLines []string, sectionConfigFor
 			t.streamWidths.Set(i, width)
 		}
 	} else {
-		// No PerColumn config, derive from sampleDataLines intelligently
+		// No PerColumn config, derive from sampling intelligently
 		t.logger.Debug("streamCalculateWidths: Intelligently deriving widths from sample data content and padding.")
 		tempRequiredWidths := tw.NewMapper[int, int]() // Widths from updateWidths (content + padding)
-		if len(sampleDataLines) > 0 {
+		if len(sampling) > 0 {
 			// updateWidths calculates: DisplayWidth(content) + padLeft + padRight
-			t.updateWidths(sampleDataLines, tempRequiredWidths, paddingForWidthCalc)
+			t.updateWidths(sampling, tempRequiredWidths, paddingForWidthCalc)
 		}
 
 		ellipsisWidthBuffer := 0
 		if autoWrapForWidthCalc == tw.WrapTruncate {
-			ellipsisWidthBuffer = tw.DisplayWidth(tw.CharEllipsis)
+			ellipsisWidthBuffer = twwidth.Width(tw.CharEllipsis)
 		}
 		varianceBuffer := 2 // Your suggested variance
-		minTotalColWidth := tw.DefaultMinlColumnWidth
+		minTotalColWidth := tw.MinimumColumnWidth
 		// Example: if t.config.Stream.MinAutoColumnWidth > 0 { minTotalColWidth = t.config.Stream.MinAutoColumnWidth }
 
 		for i := 0; i < t.streamNumCols; i++ {
@@ -523,20 +535,17 @@ func (t *Table) streamCalculateWidths(sampleDataLines []string, sectionConfigFor
 			// We need to deconstruct it to apply logic to content_width first.
 
 			sampleContent := ""
-			if i < len(sampleDataLines) {
-				sampleContent = sampleDataLines[i]
-				if t.config.Behavior.TrimSpace.Enabled() {
-					sampleContent = strings.TrimSpace(sampleDataLines[i])
-				}
+			if i < len(sampling) {
+				sampleContent = t.Trimmer(sampling[i])
 			}
-			sampleContentDisplayWidth := tw.DisplayWidth(sampleContent)
+			sampleContentDisplayWidth := twwidth.Width(sampleContent)
 
 			colPad := paddingForWidthCalc.Global
-			if i < len(paddingForWidthCalc.PerColumn) && paddingForWidthCalc.PerColumn[i] != (tw.Padding{}) {
+			if i < len(paddingForWidthCalc.PerColumn) && paddingForWidthCalc.PerColumn[i].Paddable() {
 				colPad = paddingForWidthCalc.PerColumn[i]
 			}
-			currentPadLWidth := tw.DisplayWidth(colPad.Left)
-			currentPadRWidth := tw.DisplayWidth(colPad.Right)
+			currentPadLWidth := twwidth.Width(colPad.Left)
+			currentPadRWidth := twwidth.Width(colPad.Right)
 			currentTotalPaddingWidth := currentPadLWidth + currentPadRWidth
 
 			// Start with the target content width logic
@@ -588,8 +597,8 @@ func (t *Table) streamCalculateWidths(sampleDataLines []string, sectionConfigFor
 	}
 
 	// Apply Global Constraint (if t.config.Stream.Widths.Global > 0)
-	if t.config.Stream.Widths.Global > 0 && t.streamNumCols > 0 {
-		t.logger.Debug("streamCalculateWidths: Applying global stream width constraint %d", t.config.Stream.Widths.Global)
+	if t.config.Widths.Global > 0 && t.streamNumCols > 0 {
+		t.logger.Debug("streamCalculateWidths: Applying global stream width constraint %d", t.config.Widths.Global)
 		currentTotalColumnWidthsSum := 0
 		t.streamWidths.Each(func(_ int, w int) {
 			currentTotalColumnWidthsSum += w
@@ -599,7 +608,7 @@ func (t *Table) streamCalculateWidths(sampleDataLines []string, sectionConfigFor
 		if t.renderer != nil {
 			rendererConfig := t.renderer.Config()
 			if rendererConfig.Settings.Separators.BetweenColumns.Enabled() {
-				separatorWidth = tw.DisplayWidth(rendererConfig.Symbols.Column())
+				separatorWidth = twwidth.Width(rendererConfig.Symbols.Column())
 			}
 		} else {
 			separatorWidth = 1 // Default if renderer not available yet
@@ -610,11 +619,11 @@ func (t *Table) streamCalculateWidths(sampleDataLines []string, sectionConfigFor
 			totalWidthIncludingSeparators += (t.streamNumCols - 1) * separatorWidth
 		}
 
-		if t.config.Stream.Widths.Global < totalWidthIncludingSeparators && totalWidthIncludingSeparators > 0 { // Added check for total > 0
-			t.logger.Debug("streamCalculateWidths: Total calculated width (%d incl separators) exceeds global stream width (%d). Shrinking.", totalWidthIncludingSeparators, t.config.Stream.Widths.Global)
+		if t.config.Widths.Global < totalWidthIncludingSeparators && totalWidthIncludingSeparators > 0 { // Added check for total > 0
+			t.logger.Debug("streamCalculateWidths: Total calculated width (%d incl separators) exceeds global stream width (%d). Shrinking.", totalWidthIncludingSeparators, t.config.Widths.Global)
 
 			// Target sum for column widths only (global limit - total separator width)
-			targetSumForColumnWidths := t.config.Stream.Widths.Global
+			targetSumForColumnWidths := t.config.Widths.Global
 			if t.streamNumCols > 1 {
 				targetSumForColumnWidths -= (t.streamNumCols - 1) * separatorWidth
 			}
@@ -675,7 +684,7 @@ func (t *Table) streamCalculateWidths(sampleDataLines []string, sectionConfigFor
 			}
 			t.logger.Debug("streamCalculateWidths: Widths after scaling and distribution: %v", t.streamWidths)
 		} else {
-			t.logger.Debug("streamCalculateWidths: Total calculated width (%d) fits global stream width (%d). No scaling needed.", totalWidthIncludingSeparators, t.config.Stream.Widths.Global)
+			t.logger.Debug("streamCalculateWidths: Total calculated width (%d) fits global stream width (%d). No scaling needed.", totalWidthIncludingSeparators, t.config.Widths.Global)
 		}
 	}
 
@@ -721,7 +730,7 @@ func (t *Table) streamRenderBottomBorder() error {
 	}
 
 	f := t.renderer
-	f.Line(t.writer, tw.Formatting{
+	f.Line(tw.Formatting{
 		Row: tw.RowContext{
 			Widths:       t.streamWidths,
 			ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -798,7 +807,7 @@ func (t *Table) streamRenderFooter(processedFooterLines [][]string) error {
 		separatorPosition := tw.Footer   // Positioned relative to the footer it precedes
 		separatorLocation := tw.LocationMiddle
 
-		f.Line(t.writer, tw.Formatting{
+		f.Line(tw.Formatting{
 			Row: tw.RowContext{
 				Widths:       t.streamWidths,
 				ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -855,7 +864,7 @@ func (t *Table) streamRenderFooter(processedFooterLines [][]string) error {
 			t.logger.Debug("streamRenderFooter: Setting LocationEnd for last footer line as no bottom border will follow.")
 		}
 
-		f.Footer(t.writer, [][]string{resp.cellsContent}, tw.Formatting{
+		f.Footer([][]string{resp.cellsContent}, tw.Formatting{
 			Row: tw.RowContext{
 				Widths:       t.streamWidths,
 				ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -927,7 +936,7 @@ func (t *Table) streamRenderHeader(headers []string) error {
 			)
 			nextCellsCtx = firstHeaderLineResp.cells
 		}
-		f.Line(t.writer, tw.Formatting{
+		f.Line(tw.Formatting{
 			Row: tw.RowContext{
 				Widths:       t.streamWidths,
 				ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -949,7 +958,7 @@ func (t *Table) streamRenderHeader(headers []string) error {
 		resp.cellsContent = t.buildPaddingLineContents(t.config.Header.Padding.Global.Top, t.streamWidths, t.streamNumCols, headerMerges)
 		resp.location = tw.LocationFirst
 		t.logger.Debug("streamRenderHeader: Rendering header top padding line: %v (loc: %v)", resp.cellsContent, resp.location)
-		f.Header(t.writer, [][]string{resp.cellsContent}, tw.Formatting{
+		f.Header([][]string{resp.cellsContent}, tw.Formatting{
 			Row: tw.RowContext{
 				Widths:       t.streamWidths,
 				ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -976,7 +985,7 @@ func (t *Table) streamRenderHeader(headers []string) error {
 	for i := 0; i < totalHeaderLines; i++ {
 		resp := t.streamBuildCellContexts(tw.Header, 0, i, processedHeaderLines, headerMerges, t.config.Header)
 		t.logger.Debug("streamRenderHeader: Rendering header content line %d/%d with location %v", i, totalHeaderLines, resp.location)
-		f.Header(t.writer, [][]string{resp.cellsContent}, tw.Formatting{
+		f.Header([][]string{resp.cellsContent}, tw.Formatting{
 			Row: tw.RowContext{
 				Widths:       t.streamWidths,
 				ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -1005,7 +1014,7 @@ func (t *Table) streamRenderHeader(headers []string) error {
 		resp.cellsContent = t.buildPaddingLineContents(t.config.Header.Padding.Global.Bottom, t.streamWidths, t.streamNumCols, headerMerges)
 		resp.location = tw.LocationEnd
 		t.logger.Debug("streamRenderHeader: Rendering header bottom padding line: %v (loc: %v)", resp.cellsContent, resp.location)
-		f.Header(t.writer, [][]string{resp.cellsContent}, tw.Formatting{
+		f.Header([][]string{resp.cellsContent}, tw.Formatting{
 			Row: tw.RowContext{
 				Widths:       t.streamWidths,
 				ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -1031,7 +1040,7 @@ func (t *Table) streamRenderHeader(headers []string) error {
 	if cfg.Settings.Lines.ShowHeaderLine.Enabled() && (t.firstRowRendered || len(t.streamFooterLines) > 0) {
 		t.logger.Debug("streamRenderHeader: Rendering header separator line.")
 		resp := t.streamBuildCellContexts(tw.Header, 0, totalHeaderLines-1, processedHeaderLines, headerMerges, t.config.Header)
-		f.Line(t.writer, tw.Formatting{
+		f.Line(tw.Formatting{
 			Row: tw.RowContext{
 				Widths:       t.streamWidths,
 				ColMaxWidths: tw.CellWidth{PerColumn: t.streamWidths},
@@ -1122,13 +1131,13 @@ func (t *Table) streamStoreFooter(footers []string) error {
 	}
 
 	if err := t.ensureStreamWidthsCalculated(footers, t.config.Footer); err != nil {
-		t.logger.Warn("streamStoreFooter: Failed to determine column count from footer data: %v", err)
+		t.logger.Warnf("streamStoreFooter: Failed to determine column count from footer data: %v", err)
 		t.streamFooterLines = [][]string{}
 		return nil
 	}
 
 	if t.streamNumCols > 0 && len(footers) != t.streamNumCols {
-		t.logger.Warn("streamStoreFooter: Input footer column count (%d) does not match fixed stream column count (%d). Padding/Truncating input footers.", len(footers), t.streamNumCols)
+		t.logger.Warnf("streamStoreFooter: Input footer column count (%d) does not match fixed stream column count (%d). Padding/Truncating input footers.", len(footers), t.streamNumCols)
 		if len(footers) < t.streamNumCols {
 			paddedFooters := make([]string, t.streamNumCols)
 			copy(paddedFooters, footers)

@@ -106,9 +106,109 @@ func (l Location) Validate() error {
 }
 
 type Caption struct {
-	Text    string
-	Spot    Spot
-	Align   Align
-	Width   int
-	Disable bool
+	Text  string
+	Spot  Spot
+	Align Align
+	Width int
+}
+
+func (c Caption) WithText(text string) Caption {
+	c.Text = text
+	return c
+}
+
+func (c Caption) WithSpot(spot Spot) Caption {
+	c.Spot = spot
+	return c
+}
+
+func (c Caption) WithAlign(align Align) Caption {
+	c.Align = align
+	return c
+}
+
+func (c Caption) WithWidth(width int) Caption {
+	c.Width = width
+	return c
+}
+
+type Control struct {
+	Hide State
+}
+
+// Compact configures compact width optimization for merged cells.
+type Compact struct {
+	Merge State // Merge enables compact width calculation during cell merging, optimizing space allocation.
+}
+
+// Struct holds settings for struct-based operations like AutoHeader.
+type Struct struct {
+	// AutoHeader automatically extracts and sets headers from struct fields when Bulk is called with a slice of structs.
+	// Uses JSON tags if present, falls back to field names (title-cased). Skips unexported or json:"-" fields.
+	// Enabled by default for convenience.
+	AutoHeader State
+
+	// Tags is a priority-ordered list of struct tag keys to check for header names.
+	// The first tag found on a field will be used. Defaults to ["json", "db"].
+	Tags []string
+}
+
+// Behavior defines settings that control table rendering behaviors, such as column visibility and content formatting.
+type Behavior struct {
+	AutoHide  State // AutoHide determines whether empty columns are hidden. Ignored in streaming mode.
+	TrimSpace State // TrimSpace enables trimming of leading and trailing spaces from cell content.
+
+	Header Control // Header specifies control settings for the table header.
+	Footer Control // Footer specifies control settings for the table footer.
+
+	// Compact enables optimized width calculation for merged cells, such as in horizontal merges,
+	// by systematically determining the most efficient width instead of scaling by the number of columns.
+	Compact Compact
+
+	// Structs contains settings for how struct data is processed.
+	Structs Struct
+}
+
+// Padding defines the spacing characters around cell content in all four directions.
+// A zero-value Padding struct will use the table's default padding unless Overwrite is true.
+type Padding struct {
+	Left   string
+	Right  string
+	Top    string
+	Bottom string
+
+	// Overwrite forces tablewriter to use this padding configuration exactly as specified,
+	// even when empty. When false (default), empty Padding fields will inherit defaults.
+	//
+	// For explicit no-padding, use the PaddingNone constant instead of setting Overwrite.
+	Overwrite bool
+}
+
+// Common padding configurations for convenience
+
+// Equals reports whether two Padding configurations are identical in all fields.
+// This includes comparing the Overwrite flag as part of the equality check.
+func (p Padding) Equals(padding Padding) bool {
+	return p.Left == padding.Left &&
+		p.Right == padding.Right &&
+		p.Top == padding.Top &&
+		p.Bottom == padding.Bottom &&
+		p.Overwrite == padding.Overwrite
+}
+
+// Empty reports whether all padding strings are empty (all fields == "").
+// Note that an Empty padding may still take effect if Overwrite is true.
+func (p Padding) Empty() bool {
+	return p.Left == "" && p.Right == "" && p.Top == "" && p.Bottom == ""
+}
+
+// Paddable reports whether this Padding configuration should override existing padding.
+// Returns true if either:
+//   - Any padding string is non-empty (!p.Empty())
+//   - Overwrite flag is true (even with all strings empty)
+//
+// This is used internally during configuration merging to determine whether to
+// apply the padding settings.
+func (p Padding) Paddable() bool {
+	return !p.Empty() || p.Overwrite
 }

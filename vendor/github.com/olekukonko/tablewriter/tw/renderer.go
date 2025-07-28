@@ -9,13 +9,13 @@ import (
 // Implementations must handle headers, rows, footers, and separator lines.
 type Renderer interface {
 	Start(w io.Writer) error
-	Header(w io.Writer, headers [][]string, ctx Formatting) // Renders table header
-	Row(w io.Writer, row []string, ctx Formatting)          // Renders a single row
-	Footer(w io.Writer, footers [][]string, ctx Formatting) // Renders table footer
-	Line(w io.Writer, ctx Formatting)                       // Renders separator line
-	Config() Rendition                                      // Returns renderer config
-	Close(w io.Writer) error
-	Logger(logger *ll.Logger) // send logger to renderers
+	Header(headers [][]string, ctx Formatting) // Renders table header
+	Row(row []string, ctx Formatting)          // Renders a single row
+	Footer(footers [][]string, ctx Formatting) // Renders table footer
+	Line(ctx Formatting)                       // Renders separator line
+	Config() Rendition                         // Returns renderer config
+	Close() error                              // Gets Rendition form Blueprint
+	Logger(logger *ll.Logger)                  // send logger to renderers
 }
 
 // Rendition holds the configuration for the default renderer.
@@ -24,6 +24,12 @@ type Rendition struct {
 	Symbols   Symbols  // Symbols used for table drawing
 	Settings  Settings // Rendering behavior settings
 	Streaming bool
+}
+
+// Renditioning  has a method to update its rendition.
+// Let's define an optional interface for this.
+type Renditioning interface {
+	Rendition(r Rendition)
 }
 
 // Formatting encapsulates the complete formatting context for a table row.
@@ -94,24 +100,33 @@ type Lines struct {
 
 // Settings holds configuration preferences for rendering behavior.
 type Settings struct {
-	Separators Separators // Separator visibility settings
-	Lines      Lines      // Line visibility settings
-	//TrimWhitespace State      // Trims whitespace from cell content if enabled
-	CompactMode State // Reserved for future compact rendering (unused)
+	Separators  Separators // Separator visibility settings
+	Lines       Lines      // Line visibility settings
+	CompactMode State      // Reserved for future compact rendering (unused)
+	// Cushion     State
 }
 
 // Border defines the visibility states of table borders.
 type Border struct {
-	Left   State // Left border visibility
-	Right  State // Right border visibility
-	Top    State // Top border visibility
-	Bottom State // Bottom border visibility
+	Left      State // Left border visibility
+	Right     State // Right border visibility
+	Top       State // Top border visibility
+	Bottom    State // Bottom border visibility
+	Overwrite bool
 }
-
-// BorderNone defines a border configuration with all sides disabled.
-var BorderNone = Border{Left: Off, Right: Off, Top: Off, Bottom: Off}
 
 type StreamConfig struct {
 	Enable bool
-	Widths CellWidth // Cell/column widths
+
+	// StrictColumns, if true, causes Append() to return an error
+	// in streaming mode if the number of cells in an appended row
+	// does not match the established number of columns for the stream.
+	// If false (default), rows with mismatched column counts will be
+	// padded or truncated with a warning log.
+	StrictColumns bool
+
+	// Deprecated: Use top-level Config.Widths for streaming width control.
+	// This field will be removed in a future version. It will be respected if
+	// Config.Widths is not set and this field is.
+	Widths CellWidth
 }

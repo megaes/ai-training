@@ -12,7 +12,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/mattn/go-runewidth"
+	"github.com/olekukonko/tablewriter/pkg/twwidth" // IMPORT YOUR NEW PACKAGE
+	"github.com/rivo/uniseg"
+	// "github.com/mattn/go-runewidth" // This can be removed if all direct uses are gone
 )
 
 const (
@@ -21,30 +23,6 @@ const (
 )
 
 const defaultPenalty = 1e5
-
-// WrapString wraps s into a paragraph of lines of length lim, with minimal
-// raggedness.
-func WrapString(s string, lim int) ([]string, int) {
-	if s == sp {
-		return []string{sp}, lim
-	}
-	words := SplitWords(s)
-	if len(words) == 0 {
-		return []string{""}, lim
-	}
-	var lines []string
-	max := 0
-	for _, v := range words {
-		max = runewidth.StringWidth(v)
-		if max > lim {
-			lim = max
-		}
-	}
-	for _, line := range WrapWords(words, 1, lim, defaultPenalty) {
-		lines = append(lines, strings.Join(line, sp))
-	}
-	return lines, lim
-}
 
 func SplitWords(s string) []string {
 	words := make([]string, 0, len(s)/5)
@@ -69,6 +47,129 @@ func SplitWords(s string) []string {
 	return words
 }
 
+// WrapString wraps s into a paragraph of lines of length lim, with minimal
+// raggedness.
+func WrapString(s string, lim int) ([]string, int) {
+	if s == sp {
+		return []string{sp}, lim
+	}
+	words := SplitWords(s)
+	if len(words) == 0 {
+		return []string{""}, lim
+	}
+	var lines []string
+	max := 0
+	for _, v := range words {
+		// max = runewidth.StringWidth(v) // OLD
+		max = twwidth.Width(v) // NEW: Use twdw.Width
+		if max > lim {
+			lim = max
+		}
+	}
+	for _, line := range WrapWords(words, 1, lim, defaultPenalty) {
+		lines = append(lines, strings.Join(line, sp))
+	}
+	return lines, lim
+}
+
+// WrapStringWithSpaces wraps a string into lines of a specified display width while preserving
+// leading and trailing spaces. It splits the input string into words, condenses internal multiple
+// spaces to a single space, and wraps the content to fit within the given width limit, measured
+// using Unicode-aware display width. The function is used in the logging library to format log
+// messages for consistent output. It returns the wrapped lines as a slice of strings and the
+// adjusted width limit, which may increase if a single word exceeds the input limit. Thread-safe
+// as it does not modify shared state.
+func WrapStringWithSpaces(s string, lim int) ([]string, int) {
+	if len(s) == 0 {
+		return []string{""}, lim
+	}
+	if strings.TrimSpace(s) == "" { // All spaces
+		// if runewidth.StringWidth(s) <= lim { // OLD
+		if twwidth.Width(s) <= lim { // NEW: Use twdw.Width
+			// return []string{s}, runewidth.StringWidth(s) // OLD
+			return []string{s}, twwidth.Width(s) // NEW: Use twdw.Width
+		}
+		// For very long all-space strings, "wrap" by truncating to the limit.
+		if lim > 0 {
+			substring, _ := stringToDisplayWidth(s, lim)
+			return []string{substring}, lim
+		}
+		return []string{""}, lim
+	}
+
+	var leadingSpaces, trailingSpaces, coreContent string
+	firstNonSpace := strings.IndexFunc(s, func(r rune) bool { return !unicode.IsSpace(r) })
+	leadingSpaces = s[:firstNonSpace]
+	lastNonSpace := strings.LastIndexFunc(s, func(r rune) bool { return !unicode.IsSpace(r) })
+	trailingSpaces = s[lastNonSpace+1:]
+	coreContent = s[firstNonSpace : lastNonSpace+1]
+
+	if coreContent == "" {
+		return []string{leadingSpaces + trailingSpaces}, lim
+	}
+
+	words := SplitWords(coreContent)
+	if len(words) == 0 {
+		return []string{leadingSpaces + trailingSpaces}, lim
+	}
+
+	var lines []string
+	currentLim := lim
+
+	maxCoreWordWidth := 0
+	for _, v := range words {
+		// w := runewidth.StringWidth(v) // OLD
+		w := twwidth.Width(v) // NEW: Use twdw.Width
+		if w > maxCoreWordWidth {
+			maxCoreWordWidth = w
+		}
+	}
+
+	if maxCoreWordWidth > currentLim {
+		currentLim = maxCoreWordWidth
+	}
+
+	wrappedWordLines := WrapWords(words, 1, currentLim, defaultPenalty)
+
+	for i, lineWords := range wrappedWordLines {
+		joinedLine := strings.Join(lineWords, sp)
+		finalLine := leadingSpaces + joinedLine
+		if i == len(wrappedWordLines)-1 { // Last line
+			finalLine += trailingSpaces
+		}
+		lines = append(lines, finalLine)
+	}
+	return lines, currentLim
+}
+
+// stringToDisplayWidth returns a substring of s that has a display width
+// as close as possible to, but not exceeding, targetWidth.
+// It returns the substring and its actual display width.
+func stringToDisplayWidth(s string, targetWidth int) (substring string, actualWidth int) {
+	if targetWidth <= 0 {
+		return "", 0
+	}
+
+	var currentWidth int
+	var endIndex int // Tracks the byte index in the original string
+
+	g := uniseg.NewGraphemes(s)
+	for g.Next() {
+		grapheme := g.Str()
+		// graphemeWidth := runewidth.StringWidth(grapheme) // OLD
+		graphemeWidth := twwidth.Width(grapheme) // NEW: Use twdw.Width
+
+		if currentWidth+graphemeWidth > targetWidth {
+			break
+		}
+
+		currentWidth += graphemeWidth
+		_, e := g.Positions()
+		endIndex = e
+	}
+	return s[:endIndex], currentWidth
+}
+
 // WrapWords is the low-level line-breaking algorithm, useful if you need more
 // control over the details of the text wrapping process. For most uses,
 // WrapString will be sufficient and more convenient.
@@ -87,14 +188,15 @@ func WrapWords(words []string, spc, lim, pen int) [][]string {
 	}
 	lengths := make([]int, n)
 	for i := 0; i < n; i++ {
-		lengths[i] = runewidth.StringWidth(words[i])
+		// lengths[i] = runewidth.StringWidth(words[i]) // OLD
+		lengths[i] = twwidth.Width(words[i]) // NEW: Use twdw.Width
 	}
 	nbrk := make([]int, n)
 	cost := make([]int, n)
 	for i := range cost {
 		cost[i] = math.MaxInt32
 	}
-	remainderLen := lengths[n-1]
+	remainderLen := lengths[n-1] // Uses updated lengths
 	for i := n - 1; i >= 0; i-- {
 		if i < n-1 {
 			remainderLen += spc + lengths[i]
