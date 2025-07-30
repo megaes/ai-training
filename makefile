@@ -45,6 +45,9 @@ example8:
 example9:
 	go run cmd/examples/example9/main.go
 
+example10:
+	go run cmd/examples/example10/main.go
+
 # ==============================================================================
 # Install dependencies
 
