@@ -69,6 +69,7 @@ ollama-pull:
 	ollama pull llama3.2
 	ollama pull gemma2:27b
 	ollama pull llama3.2-vision
+	ollama pull qwen3:8b
 
 python-install:
 	rm -rf .venv
@@ -168,14 +169,17 @@ deps-python-outdated:
 # ==============================================================================
 
 curl-tooling:
-	curl http://localhost:11434/api/chat -d '{ \
-	"model": "llama3.2", \
+	curl http://localhost:11434/api/chat \
+	-H "Content-Type: application/json" \
+	-d '{ \
+	"model": "qwen3:8b", \
 	"messages": [ \
 		{ \
 			"role": "user", \
-			"content": "What is the weather today in Toronto?" \
+			"content": "What is the weather like in New York, NY?" \
 		} \
 	], \
+	"stream": false, \
 	"tools": [ \
 		{ \
 			"type": "function", \
@@ -188,16 +192,13 @@ curl-tooling:
 						"location": { \
 							"type": "string", \
 							"description": "The location to get the weather for, e.g. San Francisco, CA" \
-						}, \
-						"format": { \
-							"type": "string", \
-							"description": "The format to return the weather in, e.g. 'celsius' or 'fahrenheit'", \
-							"enum": ["celsius", "fahrenheit"] \
 						} \
 					}, \
-					"required": ["location", "format"] \
+					"required": ["location"] \
 				} \
 			} \
 		} \
-  	] \
+  	], \
+	"tool_selection": "auto", \
+	"options": { "num_ctx": 32000 } \
 	}'

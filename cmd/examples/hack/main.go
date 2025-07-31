@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"time"
 
-	"github.com/tmc/langchaingo/callbacks"
-	"github.com/tmc/langchaingo/llms"
-	"github.com/tmc/langchaingo/llms/ollama"
+	"github.com/ardanlabs/ai-training/foundation/client"
 )
 
 func main() {
@@ -17,67 +18,70 @@ func main() {
 }
 
 func run() error {
-	llm, err := ollama.New(ollama.WithModel("llama3.2"))
-	if err != nil {
-		return fmt.Errorf("ollama: %w", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	logger := func(ctx context.Context, msg string, v ...any) {
+		s := fmt.Sprintf("msg: %s", msg)
+		for i := 0; i < len(v); i = i + 2 {
+			s = s + fmt.Sprintf(", %s: %v", v[i], v[i+1])
+		}
+		log.Println(s)
 	}
 
-	llm.CallbacksHandler = callbacks.LogHandler{}
+	cln := client.New(logger, os.Getenv("PREDICTIONGUARD_API_KEY"))
 
-	var weather GetWeather
-	tools := []llms.Tool{
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        weather.Name(),
-				Description: weather.Description(),
-				Parameters:  weather.Parameters(),
+	// -------------------------------------------------------------------------
+
+	d := client.D{
+		"model": "qwen3:8b",
+		"messages": []client.D{
+			{
+				"role":    "user",
+				"content": "How do you feel today?",
 			},
 		},
-	}
-
-	response, err := llm.GenerateContent(
-		context.Background(),
-		[]llms.MessageContent{
-			llms.TextParts(llms.ChatMessageTypeHuman, "What is the weather in San Francisco, CA?"),
+		"max_tokens":  1000,
+		"temperature": 0.1,
+		"top_p":       0.1,
+		"top_k":       50,
+		"stream":      false,
+		"tools": []client.D{
+			{
+				"type": "function",
+				"function": client.D{
+					"name":        "get_current_weather",
+					"description": "Get the current weather for a location",
+					"parameters": client.D{
+						"type": "object",
+						"properties": client.D{
+							"location": client.D{
+								"type":        "string",
+								"description": "The location to get the weather for, e.g. San Francisco, CA",
+							},
+						},
+						"required": []string{"location"},
+					},
+				},
+			},
 		},
-		llms.WithTools(tools),
-	)
-
-	if err != nil {
-		return fmt.Errorf("generate content: %w", err)
+		"tool_selection": "auto",
+		"options":        client.D{"num_ctx": 32000},
 	}
 
-	// Check if the model wants to call tools
-	for _, choice := range response.Choices {
-		for _, toolCall := range choice.ToolCalls {
-			if toolCall.FunctionCall.Name == weather.Name() {
+	// -------------------------------------------------------------------------
 
-				// Execute the tool
-				result, err := weather.Call(context.Background(), toolCall.FunctionCall.Arguments)
-				if err != nil {
-					return fmt.Errorf("tool call failed: %w", err)
-				}
-				fmt.Printf("Tool call result: %s\n", result)
+	const url = "http://localhost:11434/api/chat"
 
-				// Send result back to model for final response
-				finalResponse, err := llm.GenerateContent(context.Background(),
-					[]llms.MessageContent{
-						llms.TextParts(llms.ChatMessageTypeHuman, "What is the weather in San Francisco, CA?"),
-						llms.TextParts(llms.ChatMessageTypeAI, "I'll check the weather for you."),
-						llms.TextParts(llms.ChatMessageTypeSystem, fmt.Sprintf("Weather data: %s", result)),
-					})
-				if err != nil {
-					return fmt.Errorf("final response: %w", err)
-				}
-
-				fmt.Printf("Final response: %s\n", finalResponse.Choices[0].Content)
-				return nil
-			}
-		}
+	var resp client.Chat
+	if err := cln.Do(ctx, http.MethodPost, url, d, &resp); err != nil {
+		return fmt.Errorf("ERROR: do: %w", err)
 	}
 
-	fmt.Printf("Response: %s\n", response.Choices[0].Content)
+	fmt.Println("=============================")
+	fmt.Println(resp.Message.Content)
+	fmt.Println("=============================")
+
 	return nil
 }
 
