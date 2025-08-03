@@ -1,10 +1,11 @@
 // https://ampcode.com/how-to-build-an-agent
 //
-// This example shows you how to build a simple coding agent.
+// This example shows you how to create a terminal based chat client.
+// using the Ollama service and qwen3 model.
 //
 // # Running the example:
 //
-//	$ make example10
+//	$ make example10-step1
 //
 // # This requires running the following commands:
 //
@@ -68,7 +69,7 @@ type Agent struct {
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []string
 
-	fmt.Println("Chat with Llama (use 'ctrl-c' to quit)")
+	fmt.Println("Chat with qwen3 (use 'ctrl-c' to quit)")
 
 	for {
 		fmt.Print("\u001b[94m\nYou\u001b[0m: ")
@@ -77,7 +78,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			break
 		}
 
-		fmt.Print("\u001b[93m\nLlama\u001b[0m: ")
+		fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
 
 		conversation = append(conversation, userInput)
 		conversation = append(conversation, "\n")
@@ -106,10 +107,22 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 
 		var chunks []string
+		var thinking bool
 
 		for resp := range ch {
-			fmt.Printf("%s", resp.Message.Content)
-			chunks = append(chunks, resp.Message.Content)
+			switch resp.Message.Content {
+			case "<think>":
+				thinking = true
+				continue
+			case "</think>":
+				thinking = false
+				continue
+			}
+
+			if !thinking {
+				fmt.Printf("%s", resp.Message.Content)
+				chunks = append(chunks, resp.Message.Content)
+			}
 		}
 
 		fmt.Print("\n")

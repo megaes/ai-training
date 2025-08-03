@@ -68,9 +68,7 @@ docker:
 
 ollama-pull:
 	ollama pull mxbai-embed-large
-	ollama pull llama3.1
 	ollama pull llama3.2
-	ollama pull gemma2:27b
 	ollama pull llama3.2-vision
 	ollama pull qwen3:8b
 

@@ -1,3 +1,14 @@
+// https://ampcode.com/how-to-build-an-agent
+//
+// This example shows you the workflow and mechanics for tool calling.
+//
+// # Running the example:
+//
+//	$ make example10-step2
+//
+// # This requires running the following commands:
+//
+//	$ make ollama-up  // This starts the Ollama service.
 package main
 
 import (
@@ -19,84 +30,8 @@ func main() {
 }
 
 func run() error {
-	if err := nonWeatherQuestion(); err != nil {
-		return fmt.Errorf("nonWeatherQuestion: %w", err)
-	}
-
-	fmt.Println("\n===================================================")
-
 	if err := weatherQuestion(); err != nil {
 		return fmt.Errorf("weatherQuestion: %w", err)
-	}
-
-	return nil
-}
-
-func nonWeatherQuestion() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	logger := func(ctx context.Context, msg string, v ...any) {
-		s := fmt.Sprintf("msg: %s", msg)
-		for i := 0; i < len(v); i = i + 2 {
-			s = s + fmt.Sprintf(", %s: %v", v[i], v[i+1])
-		}
-		log.Println(s)
-	}
-
-	cln := client.NewSSE[client.Chat](logger)
-
-	// -------------------------------------------------------------------------
-
-	d := client.D{
-		"model": "qwen3:8b",
-		"messages": []client.D{
-			{
-				"role":    "user",
-				"content": "How do you feel today?",
-			},
-		},
-		"max_tokens":  1000,
-		"temperature": 0.1,
-		"top_p":       0.1,
-		"top_k":       50,
-		"stream":      true,
-		"tools": []client.D{
-			{
-				"type": "function",
-				"function": client.D{
-					"name":        "get_current_weather",
-					"description": "Get the current weather for a location",
-					"parameters": client.D{
-						"type": "object",
-						"properties": client.D{
-							"location": client.D{
-								"type":        "string",
-								"description": "The location to get the weather for, e.g. San Francisco, CA",
-							},
-						},
-						"required": []string{"location"},
-					},
-				},
-			},
-		},
-		"tool_selection": "auto",
-		"options":        client.D{"num_ctx": 32000},
-	}
-
-	// -------------------------------------------------------------------------
-
-	ch := make(chan client.Chat, 100)
-	if err := cln.Do(ctx, http.MethodPost, url, d, ch); err != nil {
-		return fmt.Errorf("do: %w", err)
-	}
-
-	for resp := range ch {
-		fmt.Printf("%s", resp.Message.Content)
-		if len(resp.Message.ToolCalls) > 0 {
-			fmt.Printf("%s", resp.Message.ToolCalls[0].Function.Name)
-			fmt.Printf("%s", resp.Message.ToolCalls[0].Function.Arguments)
-		}
 	}
 
 	return nil
@@ -117,56 +52,96 @@ func weatherQuestion() error {
 	cln := client.NewSSE[client.Chat](logger)
 
 	// -------------------------------------------------------------------------
+	// Start by asking what the weather is like in New York City
+
+	var getWeather GetWeather
+
+	q := "What is the weather like in New York City?"
+	fmt.Printf("\nQuestion:\n\n%s\n\n", q)
+
+	messages := []client.D{
+		{
+			"role":    "user",
+			"content": q,
+		},
+	}
 
 	d := client.D{
-		"model": "qwen3:8b",
-		"messages": []client.D{
-			{
-				"role":    "user",
-				"content": "What is the weather like in New York City?",
-			},
-		},
+		"model":       "qwen3:8b",
+		"messages":    messages,
 		"max_tokens":  1000,
 		"temperature": 0.1,
 		"top_p":       0.1,
 		"top_k":       50,
 		"stream":      true,
 		"tools": []client.D{
-			{
-				"type": "function",
-				"function": client.D{
-					"name":        "get_current_weather",
-					"description": "Get the current weather for a location",
-					"parameters": client.D{
-						"type": "object",
-						"properties": client.D{
-							"location": client.D{
-								"type":        "string",
-								"description": "The location to get the weather for, e.g. San Francisco, CA",
-							},
-						},
-						"required": []string{"location"},
-					},
-				},
-			},
+			getWeather.Tool(),
 		},
 		"tool_selection": "auto",
 		"options":        client.D{"num_ctx": 32000},
 	}
-
-	// -------------------------------------------------------------------------
 
 	ch := make(chan client.Chat, 100)
 	if err := cln.Do(ctx, http.MethodPost, url, d, ch); err != nil {
 		return fmt.Errorf("do: %w", err)
 	}
 
+	// -------------------------------------------------------------------------
+	// The model will respond asking us to make the get_current_weather function
+	// call. We will make the call and then send the response back to the model.
+
 	for resp := range ch {
-		fmt.Printf("%s", resp.Message.Content)
+		fmt.Print(resp.Message.Content)
+
 		if len(resp.Message.ToolCalls) > 0 {
-			fmt.Printf("%s", resp.Message.ToolCalls[0].Function.Name)
-			fmt.Printf("%s", resp.Message.ToolCalls[0].Function.Arguments)
+			if resp.Message.ToolCalls[0].Function.Name == "get_current_weather" {
+				fmt.Printf("Model Asking For Tool Call:\n\n%s(%s)\n\n", resp.Message.ToolCalls[0].Function.Name, resp.Message.ToolCalls[0].Function.Arguments)
+
+				resp, err := getWeather.Call(ctx, resp.Message.ToolCalls[0].Function.Arguments)
+				if err != nil {
+					return fmt.Errorf("call: %w", err)
+				}
+
+				messages = append(messages, client.D{
+					"role":    "assistant",
+					"content": resp,
+				})
+
+				fmt.Printf("Tool Call Result:\n\n%s\n\n", resp)
+			}
 		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Send the result of the tool call back to the model
+
+	d = client.D{
+		"model":       "qwen3:8b",
+		"messages":    messages,
+		"max_tokens":  1000,
+		"temperature": 0.1,
+		"top_p":       0.1,
+		"top_k":       50,
+		"stream":      true,
+		"tools": []client.D{
+			getWeather.Tool(),
+		},
+		"tool_selection": "auto",
+		"options":        client.D{"num_ctx": 32000},
+	}
+
+	ch = make(chan client.Chat, 100)
+	if err := cln.Do(ctx, http.MethodPost, url, d, ch); err != nil {
+		return fmt.Errorf("do: %w", err)
+	}
+
+	// -------------------------------------------------------------------------
+	// The model should provide the answer based on the tool call
+
+	fmt.Print("Final Result:\n")
+
+	for resp := range ch {
+		fmt.Print(resp.Message.Content)
 	}
 
 	return nil
@@ -175,36 +150,29 @@ func weatherQuestion() error {
 // =============================================================================
 
 type GetWeather struct {
-	Location string `json:"location"` // The city and state, e.g. San Francisco, CA
-	Format   string `json:"format"`   // The format to return the weather in, e.g. 'celsius' or 'fahrenheit'
+	Location string `json:"location"`
 }
 
-func (g GetWeather) Name() string {
-	return "get_current_weather"
-}
-
-func (g GetWeather) Description() string {
-	return "Get the current weather for a location"
-}
-
-func (g GetWeather) Parameters() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"location": map[string]any{
-				"type":        "string",
-				"description": "The location to get the weather for, e.g. San Francisco, CA",
-			},
-			"format": map[string]any{
-				"type":        "string",
-				"description": "The format to return the weather in, e.g. 'celsius' or 'fahrenheit'",
-				"enum":        []string{"celsius", "fahrenheit"},
+func (g GetWeather) Tool() client.D {
+	return client.D{
+		"type": "function",
+		"function": client.D{
+			"name":        "get_current_weather",
+			"description": "Get the current weather for a location",
+			"parameters": client.D{
+				"type": "object",
+				"properties": client.D{
+					"location": client.D{
+						"type":        "string",
+						"description": "The location to get the weather for, e.g. San Francisco, CA",
+					},
+				},
+				"required": []string{"location"},
 			},
 		},
-		"required": []string{"location", "format"},
 	}
 }
 
-func (g GetWeather) Call(ctx context.Context, input string) (string, error) {
+func (g GetWeather) Call(ctx context.Context, arguments map[string]string) (string, error) {
 	return "hot and humid, 28 degrees celcius", nil
 }
