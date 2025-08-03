@@ -40,16 +40,14 @@ type Logger func(context.Context, string, ...any)
 // =============================================================================
 
 type Client struct {
-	log    Logger
-	apiKey string
-	http   *http.Client
+	log  Logger
+	http *http.Client
 }
 
-func New(log Logger, apiKey string, options ...func(cln *Client)) *Client {
+func New(log Logger, options ...func(cln *Client)) *Client {
 	cln := Client{
-		log:    log,
-		apiKey: apiKey,
-		http:   &defaultClient,
+		log:  log,
+		http: &defaultClient,
 	}
 
 	for _, option := range options {
@@ -81,10 +79,6 @@ func (cln *Client) Do(ctx context.Context, method string, endpoint string, body 
 		return fmt.Errorf("client: copy error: %w", err)
 	}
 
-	fmt.Println("====================================")
-	fmt.Println(string(data))
-	fmt.Println("====================================")
-
 	switch d := v.(type) {
 	case *string:
 		*d = string(data)
@@ -104,8 +98,8 @@ type SSEClient[T any] struct {
 	*Client
 }
 
-func NewSSE[T any](log Logger, apiKey string, options ...func(cln *Client)) *SSEClient[T] {
-	cln := New(log, apiKey, options...)
+func NewSSE[T any](log Logger, options ...func(cln *Client)) *SSEClient[T] {
+	cln := New(log, options...)
 
 	return &SSEClient[T]{
 		Client: cln,
@@ -128,12 +122,8 @@ func (cln *SSEClient[T]) Do(ctx context.Context, method string, endpoint string,
 		for scanner.Scan() {
 			line := scanner.Text()
 
-			if line == "" || line == "data: [DONE]" {
-				continue
-			}
-
 			var v T
-			if err := json.Unmarshal([]byte(line[6:]), &v); err != nil {
+			if err := json.Unmarshal([]byte(line), &v); err != nil {
 				cln.log(ctx, "sseclient: rawRequest:", "Unmarshal", err)
 				return
 			}
@@ -156,11 +146,6 @@ func (cln *SSEClient[T]) Do(ctx context.Context, method string, endpoint string,
 func do(ctx context.Context, cln *Client, method string, endpoint string, body any) (*http.Response, error) {
 	var statusCode int
 
-	cln.log(ctx, "do: rawRequest: started", "method", method, "endpoint", endpoint)
-	defer func() {
-		cln.log(ctx, "do: rawRequest: completed", "status", statusCode)
-	}()
-
 	var b bytes.Buffer
 	if body != nil {
 		if err := json.NewEncoder(&b).Encode(body); err != nil {
@@ -177,7 +162,6 @@ func do(ctx context.Context, cln *Client, method string, endpoint string, body a
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", fmt.Sprintf("Prediction Guard Go Client: %s", version))
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cln.apiKey))
 
 	resp, err := cln.http.Do(req)
 	if err != nil {

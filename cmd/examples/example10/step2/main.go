@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
 )
+
+const url = "http://localhost:11434/api/chat"
 
 func main() {
 	if err := run(); err != nil {
@@ -18,6 +19,20 @@ func main() {
 }
 
 func run() error {
+	// if err := nonWeatherQuestion(); err != nil {
+	// 	return fmt.Errorf("nonWeatherQuestion: %w", err)
+	// }
+
+	// fmt.Println("\n===================================================")
+
+	if err := weatherQuestion(); err != nil {
+		return fmt.Errorf("weatherQuestion: %w", err)
+	}
+
+	return nil
+}
+
+func nonWeatherQuestion() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -29,7 +44,7 @@ func run() error {
 		log.Println(s)
 	}
 
-	cln := client.New(logger, os.Getenv("PREDICTIONGUARD_API_KEY"))
+	cln := client.NewSSE[client.Chat](logger)
 
 	// -------------------------------------------------------------------------
 
@@ -45,7 +60,7 @@ func run() error {
 		"temperature": 0.1,
 		"top_p":       0.1,
 		"top_k":       50,
-		"stream":      false,
+		"stream":      true,
 		"tools": []client.D{
 			{
 				"type": "function",
@@ -71,16 +86,88 @@ func run() error {
 
 	// -------------------------------------------------------------------------
 
-	const url = "http://localhost:11434/api/chat"
-
-	var resp client.Chat
-	if err := cln.Do(ctx, http.MethodPost, url, d, &resp); err != nil {
-		return fmt.Errorf("ERROR: do: %w", err)
+	ch := make(chan client.Chat, 100)
+	if err := cln.Do(ctx, http.MethodPost, url, d, ch); err != nil {
+		return fmt.Errorf("do: %w", err)
 	}
 
-	fmt.Println("=============================")
-	fmt.Println(resp.Message.Content)
-	fmt.Println("=============================")
+	for resp := range ch {
+		fmt.Printf("%s", resp.Message.Content)
+		if len(resp.Message.ToolCalls) > 0 {
+			fmt.Printf("%s", resp.Message.ToolCalls[0].Function.Name)
+			fmt.Printf("%s", resp.Message.ToolCalls[0].Function.Arguments)
+		}
+	}
+
+	return nil
+}
+
+func weatherQuestion() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	logger := func(ctx context.Context, msg string, v ...any) {
+		s := fmt.Sprintf("msg: %s", msg)
+		for i := 0; i < len(v); i = i + 2 {
+			s = s + fmt.Sprintf(", %s: %v", v[i], v[i+1])
+		}
+		log.Println(s)
+	}
+
+	cln := client.NewSSE[client.Chat](logger)
+
+	// -------------------------------------------------------------------------
+
+	d := client.D{
+		"model": "qwen3:8b",
+		"messages": []client.D{
+			{
+				"role":    "user",
+				"content": "What is the weather like in New York City?",
+			},
+		},
+		"max_tokens":  1000,
+		"temperature": 0.1,
+		"top_p":       0.1,
+		"top_k":       50,
+		"stream":      true,
+		"tools": []client.D{
+			{
+				"type": "function",
+				"function": client.D{
+					"name":        "get_current_weather",
+					"description": "Get the current weather for a location",
+					"parameters": client.D{
+						"type": "object",
+						"properties": client.D{
+							"location": client.D{
+								"type":        "string",
+								"description": "The location to get the weather for, e.g. San Francisco, CA",
+							},
+						},
+						"required": []string{"location"},
+					},
+				},
+			},
+		},
+		"tool_selection": "auto",
+		"options":        client.D{"num_ctx": 32000},
+	}
+
+	// -------------------------------------------------------------------------
+
+	ch := make(chan client.Chat, 100)
+	if err := cln.Do(ctx, http.MethodPost, url, d, ch); err != nil {
+		return fmt.Errorf("do: %w", err)
+	}
+
+	for resp := range ch {
+		fmt.Printf("%s", resp.Message.Content)
+		if len(resp.Message.ToolCalls) > 0 {
+			fmt.Printf("%s", resp.Message.ToolCalls[0].Function.Name)
+			fmt.Printf("%s", resp.Message.ToolCalls[0].Function.Arguments)
+		}
+	}
 
 	return nil
 }

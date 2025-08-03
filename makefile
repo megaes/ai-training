@@ -45,8 +45,11 @@ example8:
 example9:
 	go run cmd/examples/example9/main.go
 
-example10:
-	go run cmd/examples/example10/main.go
+example10-step1:
+	go run cmd/examples/example10/step1/main.go
+
+example10-step2:
+	go run cmd/examples/example10/step2/main.go
 
 # ==============================================================================
 # Install dependencies
@@ -201,4 +204,18 @@ curl-tooling:
   	], \
 	"tool_selection": "auto", \
 	"options": { "num_ctx": 32000 } \
+	}'
+
+curl-tooling-stream:
+	curl http://localhost:11434/api/chat \
+	-H "Content-Type: application/json" \
+	-d '{ \
+	"model": "qwen3:8b", \
+	"messages": [ \
+		{ \
+			"role": "user", \
+			"content": "How are you?" \
+		} \
+	], \
+	"stream": true \
 	}'

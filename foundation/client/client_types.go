@@ -50,66 +50,24 @@ func (t Time) MarshalJSON() ([]byte, error) {
 
 // =============================================================================
 
-type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+type Function struct {
+	Name      string            `json:"name"`
+	Arguments map[string]string `json:"arguments"`
 }
 
-type ChatChoice struct {
-	Index   int         `json:"index"`
-	Message ChatMessage `json:"message"`
+type ToolCall struct {
+	Function Function `json:"function"`
+}
+
+type ChatMessage struct {
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	ToolCalls []ToolCall `json:"tool_calls"`
 }
 
 type Chat struct {
-	ID      string       `json:"id"`
-	Object  string       `json:"object"`
-	Created Time         `json:"created"`
-	Model   string       `json:"model"`
-	Message ChatMessage  `json:"message"`
-	Choices []ChatChoice `json:"choices"`
-}
-
-// =============================================================================
-
-type ChatSSEDelta struct {
-	Content string `json:"content"`
-}
-
-type ChatSSEChoice struct {
-	Index        int          `json:"index"`
-	Delta        ChatSSEDelta `json:"delta"`
-	Text         string       `json:"generated_text"`
-	Probs        float32      `json:"logprobs"`
-	FinishReason string       `json:"finish_reason"`
-}
-
-type ChatSSE struct {
-	ID      string          `json:"id"`
-	Object  string          `json:"object"`
-	Created Time            `json:"created"`
-	Model   string          `json:"model"`
-	Choices []ChatSSEChoice `json:"choices"`
-	Error   string          `json:"error"`
-}
-
-// =============================================================================
-
-type ChatVisionMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-// ChatVisionChoice represents a choice for the vision call.
-type ChatVisionChoice struct {
-	Index   int               `json:"index"`
-	Message ChatVisionMessage `json:"message"`
-}
-
-// ChatVision represents the result for the vision call.
-type ChatVision struct {
-	ID      string             `json:"id"`
-	Object  string             `json:"object"`
-	Created Time               `json:"created"`
-	Model   string             `json:"model"`
-	Choices []ChatVisionChoice `json:"choices"`
+	Model   string      `json:"model"`
+	Created Time        `json:"created"`
+	Message ChatMessage `json:"message"`
+	Done    bool        `json:"done"`
 }
