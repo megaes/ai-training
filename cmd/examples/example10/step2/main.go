@@ -59,7 +59,7 @@ func weatherQuestion() error {
 	q := "What is the weather like in New York City?"
 	fmt.Printf("\nQuestion:\n\n%s\n\n", q)
 
-	messages := []client.D{
+	conversation := []client.D{
 		{
 			"role":    "user",
 			"content": q,
@@ -68,7 +68,7 @@ func weatherQuestion() error {
 
 	d := client.D{
 		"model":       "qwen3:8b",
-		"messages":    messages,
+		"messages":    conversation,
 		"max_tokens":  1000,
 		"temperature": 0.1,
 		"top_p":       0.1,
@@ -102,10 +102,7 @@ func weatherQuestion() error {
 					return fmt.Errorf("call: %w", err)
 				}
 
-				messages = append(messages, client.D{
-					"role":    "assistant",
-					"content": resp,
-				})
+				conversation = append(conversation, resp)
 
 				fmt.Printf("Tool Call Result:\n\n%s\n\n", resp)
 			}
@@ -117,7 +114,7 @@ func weatherQuestion() error {
 
 	d = client.D{
 		"model":       "qwen3:8b",
-		"messages":    messages,
+		"messages":    conversation,
 		"max_tokens":  1000,
 		"temperature": 0.1,
 		"top_p":       0.1,
@@ -173,6 +170,10 @@ func (g GetWeather) Tool() client.D {
 	}
 }
 
-func (g GetWeather) Call(ctx context.Context, arguments map[string]string) (string, error) {
-	return "hot and humid, 28 degrees celcius", nil
+func (g GetWeather) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+	return client.D{
+		"role":    "tool",
+		"name":    "get_current_weather",
+		"content": "hot and humid, 28 degrees celcius",
+	}, nil
 }

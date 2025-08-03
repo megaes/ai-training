@@ -5,7 +5,7 @@
 //
 // # Running the example:
 //
-//	$ make example10-step1
+//	$ make example10-step3
 //
 // # This requires running the following commands:
 //
@@ -68,22 +68,28 @@ type Agent struct {
 
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D
+	var inToolCall bool
 
 	fmt.Println("Chat with qwen3 (use 'ctrl-c' to quit)")
 
 	for {
-		fmt.Print("\u001b[94m\nYou\u001b[0m: ")
-		userInput, ok := a.getUserMessage()
-		if !ok {
-			break
+		// CHECK IF WE ARE IN A TOOL CALL BEFORE ASKING FOR INPUT.
+		if !inToolCall {
+			fmt.Print("\u001b[94m\nYou\u001b[0m: ")
+			userInput, ok := a.getUserMessage()
+			if !ok {
+				break
+			}
+
+			conversation = append(conversation, client.D{
+				"role":    "user",
+				"content": userInput,
+			})
+
+			fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
 		}
 
-		fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
-
-		conversation = append(conversation, client.D{
-			"role":    "user",
-			"content": userInput,
-		})
+		inToolCall = false
 
 		d := client.D{
 			"model":       "qwen3:8b",
@@ -93,6 +99,13 @@ func (a *Agent) Run(ctx context.Context) error {
 			"top_p":       0.1,
 			"top_k":       50,
 			"stream":      true,
+
+			// ADDING TOOL CALLING TO THE REQUEST.
+			"tools": []client.D{
+				GetWeather{}.Tool(),
+			},
+			"tool_selection": "auto",
+			"options":        client.D{"num_ctx": 32000},
 		}
 
 		ch := make(chan client.Chat, 100)
@@ -114,6 +127,20 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 
 			if !thinking {
+				// ADD SUPPORT FOR TOOL CALLING.
+				if len(resp.Message.ToolCalls) > 0 {
+					result, err := callTools(ctx, resp.Message.ToolCalls)
+					if err != nil {
+						return fmt.Errorf("call tools: %w", err)
+					}
+
+					if len(result) > 0 {
+						conversation = append(conversation, result)
+						inToolCall = true
+						continue
+					}
+				}
+
 				if resp.Message.Content != "" {
 					fmt.Print(resp.Message.Content)
 					chunks = append(chunks, resp.Message.Content)
@@ -132,4 +159,55 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func callTools(ctx context.Context, toolCalls []client.ToolCall) (client.D, error) {
+	for _, toolCall := range toolCalls {
+		if toolCall.Function.Name == "get_current_weather" {
+			var getWeather GetWeather
+
+			resp, err := getWeather.Call(ctx, toolCall.Function.Arguments)
+			if err != nil {
+				return client.D{}, fmt.Errorf("call: %w", err)
+			}
+
+			return resp, nil
+		}
+	}
+
+	return client.D{}, nil
+}
+
+// =============================================================================
+
+type GetWeather struct {
+	Location string `json:"location"`
+}
+
+func (g GetWeather) Tool() client.D {
+	return client.D{
+		"type": "function",
+		"function": client.D{
+			"name":        "get_current_weather",
+			"description": "Get the current weather for a location",
+			"parameters": client.D{
+				"type": "object",
+				"properties": client.D{
+					"location": client.D{
+						"type":        "string",
+						"description": "The location to get the weather for, e.g. San Francisco, CA",
+					},
+				},
+				"required": []string{"location"},
+			},
+		},
+	}
+}
+
+func (g GetWeather) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+	return client.D{
+		"role":    "tool",
+		"name":    "get_current_weather",
+		"content": "hot and humid, 28 degrees celcius",
+	}, nil
 }
