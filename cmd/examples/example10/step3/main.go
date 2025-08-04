@@ -178,9 +178,7 @@ func callTools(ctx context.Context, toolCalls []client.ToolCall) (client.D, erro
 
 // =============================================================================
 
-type GetWeather struct {
-	Location string `json:"location"`
-}
+type GetWeather struct{}
 
 func (g GetWeather) Tool() client.D {
 	return client.D{
