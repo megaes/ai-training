@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
@@ -75,6 +76,7 @@ type Agent struct {
 func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (string, bool)) *Agent {
 	tools := []Tool{
 		NewReadFile(),
+		NewListFiles(),
 	}
 
 	toolDocs := make([]client.D, len(tools))
@@ -243,5 +245,86 @@ func (rf ReadFile) Call(ctx context.Context, arguments map[string]string) (clien
 		"role":    "tool",
 		"name":    rf.Name(),
 		"content": string(content),
+	}, nil
+}
+
+// =============================================================================
+
+type ListFiles struct {
+	name string
+}
+
+func NewListFiles() ListFiles {
+	return ListFiles{
+		name: "list_files",
+	}
+}
+
+func (lf ListFiles) Name() string {
+	return lf.name
+}
+
+func (lf ListFiles) ToolDocument() client.D {
+	return client.D{
+		"type": "function",
+		"function": client.D{
+			"name":        lf.Name(),
+			"description": "List files and directories at a given path. If no path is provided, lists files in the current directory.",
+			"parameters": client.D{
+				"type": "object",
+				"properties": client.D{
+					"path": client.D{
+						"type":        "string",
+						"description": "The relative path of the directory.",
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+	}
+}
+
+func (lf ListFiles) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+	dir := "."
+	if arguments["path"] != "" {
+		dir = arguments["path"]
+	}
+
+	var files []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+
+		if strings.Contains(relPath, "zarf") ||
+			strings.Contains(relPath, "vendor") ||
+			strings.Contains(relPath, ".venv") ||
+			strings.Contains(relPath, ".git") {
+			return nil
+		}
+
+		if relPath != "." {
+			if info.IsDir() {
+				files = append(files, relPath+"/")
+			} else {
+				files = append(files, relPath)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return client.D{}, err
+	}
+
+	return client.D{
+		"role":    "tool",
+		"name":    lf.Name(),
+		"content": strings.Join(files, "\n"),
 	}, nil
 }
