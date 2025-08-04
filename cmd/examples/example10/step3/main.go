@@ -159,7 +159,7 @@ func (a *Agent) Run(ctx context.Context) error {
 					// ADD SUPPORT FOR TOOL CALLING.
 					result, err := a.callTools(ctx, resp.Message.ToolCalls)
 					if err != nil {
-						fmt.Print(err.Error())
+						fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: %s", err)
 						continue
 					}
 
@@ -175,13 +175,18 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		}
 
-		if len(chunks) > 0 {
+		if !inToolCall && len(chunks) > 0 {
 			fmt.Print("\n")
 
-			conversation = append(conversation, client.D{
-				"role":    "assistant",
-				"content": strings.Join(chunks, " "),
-			})
+			content := strings.Join(chunks, " ")
+			content = strings.TrimLeft(content, "\n")
+
+			if content != "" {
+				conversation = append(conversation, client.D{
+					"role":    "assistant",
+					"content": content,
+				})
+			}
 		}
 	}
 
@@ -196,7 +201,7 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) (cli
 
 				resp, err := tool.Call(ctx, toolCall.Function.Arguments)
 				if err != nil {
-					return client.D{}, fmt.Errorf("call: %w", err)
+					return client.D{}, fmt.Errorf("\n\nERROR: %w", err)
 				}
 				return resp, nil
 			}

@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -77,6 +78,7 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 	tools := []Tool{
 		NewReadFile(),
 		NewListFiles(),
+		NewEditFile(),
 	}
 
 	toolDocs := make([]client.D, len(tools))
@@ -152,8 +154,7 @@ func (a *Agent) Run(ctx context.Context) error {
 				case len(resp.Message.ToolCalls) > 0:
 					result, err := a.callTools(ctx, resp.Message.ToolCalls)
 					if err != nil {
-						fmt.Print(err.Error())
-						continue
+						fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: %s", err)
 					}
 
 					if len(result) > 0 {
@@ -168,13 +169,18 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		}
 
-		if len(chunks) > 0 {
+		if !inToolCall && len(chunks) > 0 {
 			fmt.Print("\n")
 
-			conversation = append(conversation, client.D{
-				"role":    "assistant",
-				"content": strings.Join(chunks, " "),
-			})
+			content := strings.Join(chunks, " ")
+			content = strings.TrimLeft(content, "\n")
+
+			if content != "" {
+				conversation = append(conversation, client.D{
+					"role":    "assistant",
+					"content": content,
+				})
+			}
 		}
 	}
 
@@ -189,7 +195,7 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) (cli
 
 				resp, err := tool.Call(ctx, toolCall.Function.Arguments)
 				if err != nil {
-					return client.D{}, fmt.Errorf("call: %w", err)
+					return client.D{}, fmt.Errorf("\n\nERROR: %w", err)
 				}
 				return resp, nil
 			}
@@ -275,7 +281,7 @@ func (lf ListFiles) ToolDocument() client.D {
 				"properties": client.D{
 					"path": client.D{
 						"type":        "string",
-						"description": "The relative path of the directory.",
+						"description": "Relative path to list files from. Defaults to current directory if not provided.",
 					},
 				},
 				"required": []string{"path"},
@@ -327,4 +333,100 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]string) (clie
 		"name":    lf.Name(),
 		"content": strings.Join(files, "\n"),
 	}, nil
+}
+
+// =============================================================================
+
+type EditFile struct {
+	name string
+}
+
+func NewEditFile() EditFile {
+	return EditFile{
+		name: "edit_file",
+	}
+}
+
+func (ef EditFile) Name() string {
+	return ef.name
+}
+
+func (ef EditFile) ToolDocument() client.D {
+	return client.D{
+		"type": "function",
+		"function": client.D{
+			"name":        ef.Name(),
+			"description": "Make edits to a text file. Replaces 'old_str' with 'new_str' in the given file. 'old_str' and 'new_str' MUST be different from each other. If the file specified with path doesn't exist, it will be created with a sample hello world for that file type.",
+			"parameters": client.D{
+				"type": "object",
+				"properties": client.D{
+					"path": client.D{
+						"type":        "string",
+						"description": "The path to the file",
+					},
+					"old_str": client.D{
+						"type":        "string",
+						"description": "Text to search for - must match exactly and must only have one match exactlye",
+					},
+					"new_str": client.D{
+						"type":        "string",
+						"description": "Text to replace old_str with",
+					},
+				},
+				"required": []string{"path", "old_str", "new_str"},
+			},
+		},
+	}
+}
+
+func (ef EditFile) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+	path := arguments["path"]
+	oldStr := arguments["old_str"]
+	newStr := arguments["new_str"]
+
+	if path == "" || oldStr == newStr {
+		return client.D{}, fmt.Errorf("invalid input parameters")
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ef.createNewFile(path, newStr)
+		}
+		return client.D{}, fmt.Errorf("reading file: %w", err)
+	}
+
+	if oldStr != "" {
+		oldContent := string(content)
+		newContent := strings.ReplaceAll(oldContent, oldStr, newStr)
+
+		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+			return client.D{}, fmt.Errorf("writing file: %w", err)
+		}
+	}
+
+	fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: File %s edited successfully", path)
+
+	return client.D{}, nil
+}
+
+func (ef EditFile) createNewFile(filePath string, content string) (client.D, error) {
+	dir := path.Dir(filePath)
+	if dir != "." {
+		fmt.Println("FP: ", filePath)
+		fmt.Println("DIR: ", dir)
+		err := os.MkdirAll(dir, 0755)
+		if err != nil {
+			return client.D{}, fmt.Errorf("creating directory: %w", err)
+		}
+	}
+
+	err := os.WriteFile(filePath, []byte(content), 0644)
+	if err != nil {
+		return client.D{}, fmt.Errorf("writing file: %w", err)
+	}
+
+	fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: File %s created successfully", filePath)
+
+	return client.D{}, nil
 }
