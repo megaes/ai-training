@@ -105,23 +105,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 
 		var chunks []string
-		var thinking bool
 
 		for resp := range ch {
-			switch resp.Message.Content {
-			case "<think>":
-				thinking = true
-				continue
-			case "</think>":
-				thinking = false
-				continue
-			}
-
-			if !thinking {
-				if resp.Message.Content != "" {
-					fmt.Print(resp.Message.Content)
-					chunks = append(chunks, resp.Message.Content)
-				}
+			if resp.Message.Content != "" {
+				fmt.Print(resp.Message.Content)
+				chunks = append(chunks, resp.Message.Content)
 			}
 		}
 

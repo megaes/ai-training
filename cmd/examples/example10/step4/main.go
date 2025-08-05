@@ -143,35 +143,24 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 
 		var chunks []string
-		var thinking bool
 
 		for resp := range ch {
-			switch resp.Message.Content {
-			case "<think>":
-				thinking = true
-				continue
-			case "</think>":
-				thinking = false
-				continue
-			}
 
-			if !thinking {
-				switch {
-				case len(resp.Message.ToolCalls) > 0:
-					result, err := a.callTools(ctx, resp.Message.ToolCalls)
-					if err != nil {
-						fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: %s", err)
-					}
-
-					if len(result) > 0 {
-						conversation = append(conversation, result)
-						inToolCall = true
-					}
-
-				case resp.Message.Content != "":
-					fmt.Print(resp.Message.Content)
-					chunks = append(chunks, resp.Message.Content)
+			switch {
+			case len(resp.Message.ToolCalls) > 0:
+				result, err := a.callTools(ctx, resp.Message.ToolCalls)
+				if err != nil {
+					fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: %s", err)
 				}
+
+				if len(result) > 0 {
+					conversation = append(conversation, result)
+					inToolCall = true
+				}
+
+			case resp.Message.Content != "":
+				fmt.Print(resp.Message.Content)
+				chunks = append(chunks, resp.Message.Content)
 			}
 		}
 
@@ -197,7 +186,8 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) (cli
 	for _, toolCall := range toolCalls {
 		for _, tool := range a.tools {
 			if toolCall.Function.Name == tool.Name() {
-				fmt.Printf("\u001b[92m\ntool\u001b[0m: %s(%s)", tool.Name(), toolCall.Function.Arguments)
+				fmt.Printf("\u001b[92mtool\u001b[0m: %s(%s)\n", tool.Name(), toolCall.Function.Arguments)
+				fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
 
 				resp, err := tool.Call(ctx, toolCall.Function.Arguments)
 				if err != nil {

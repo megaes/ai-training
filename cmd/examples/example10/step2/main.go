@@ -75,7 +75,7 @@ func weatherQuestion() error {
 		"top_k":       50,
 		"stream":      true,
 		"tools": []client.D{
-			getWeather.Tool(),
+			getWeather.ToolDocument(),
 		},
 		"tool_selection": "auto",
 		"options":        client.D{"num_ctx": 32000},
@@ -121,7 +121,7 @@ func weatherQuestion() error {
 		"top_k":       50,
 		"stream":      true,
 		"tools": []client.D{
-			getWeather.Tool(),
+			getWeather.ToolDocument(),
 		},
 		"tool_selection": "auto",
 		"options":        client.D{"num_ctx": 32000},
@@ -139,6 +139,10 @@ func weatherQuestion() error {
 
 	for resp := range ch {
 		fmt.Print(resp.Message.Content)
+
+		if len(resp.Message.ToolCalls) > 0 {
+			fmt.Printf("Model Asking For Tool Call:\n\n%s(%s)\n\n", resp.Message.ToolCalls[0].Function.Name, resp.Message.ToolCalls[0].Function.Arguments)
+		}
 	}
 
 	return nil
@@ -147,14 +151,24 @@ func weatherQuestion() error {
 // =============================================================================
 
 type GetWeather struct {
-	Location string `json:"location"`
+	name string
 }
 
-func (g GetWeather) Tool() client.D {
+func NewGetWeather() GetWeather {
+	return GetWeather{
+		name: "get_current_weather",
+	}
+}
+
+func (gw GetWeather) Name() string {
+	return gw.name
+}
+
+func (gw GetWeather) ToolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
-			"name":        "get_current_weather",
+			"name":        gw.Name(),
 			"description": "Get the current weather for a location",
 			"parameters": client.D{
 				"type": "object",
@@ -170,10 +184,10 @@ func (g GetWeather) Tool() client.D {
 	}
 }
 
-func (g GetWeather) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+func (gw GetWeather) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
 	return client.D{
 		"role":    "tool",
-		"name":    "get_current_weather",
+		"name":    gw.Name(),
 		"content": "hot and humid, 28 degrees celcius",
 	}, nil
 }
