@@ -64,7 +64,7 @@ func run() error {
 type Tool interface {
 	Name() string
 	ToolDocument() client.D
-	Call(ctx context.Context, arguments map[string]string) (client.D, error)
+	Call(ctx context.Context, arguments map[string]any) (client.D, error)
 }
 
 // =============================================================================
@@ -253,7 +253,7 @@ func (gw GetWeather) ToolDocument() client.D {
 	}
 }
 
-func (gw GetWeather) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
 	data := map[string]any{
 		"temperature": 28,
 		"humidity":    80,

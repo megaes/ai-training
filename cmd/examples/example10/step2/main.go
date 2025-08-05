@@ -184,7 +184,7 @@ func (gw GetWeather) ToolDocument() client.D {
 	}
 }
 
-func (gw GetWeather) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
 	return client.D{
 		"role":    "tool",
 		"name":    gw.Name(),

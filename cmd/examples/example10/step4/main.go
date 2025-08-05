@@ -26,7 +26,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
@@ -69,7 +68,7 @@ func run() error {
 type Tool interface {
 	Name() string
 	ToolDocument() client.D
-	Call(ctx context.Context, arguments map[string]string) (client.D, error)
+	Call(ctx context.Context, arguments map[string]any) (client.D, error)
 }
 
 // =============================================================================
@@ -326,8 +325,8 @@ func (rf ReadFile) ToolDocument() client.D {
 	}
 }
 
-func (rf ReadFile) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
-	content, err := os.ReadFile(arguments["path"])
+func (rf ReadFile) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+	content, err := os.ReadFile(arguments["path"].(string))
 	if err != nil {
 		return toolErrorResponse(rf.name, err), nil
 	}
@@ -371,10 +370,10 @@ func (lf ListFiles) ToolDocument() client.D {
 	}
 }
 
-func (lf ListFiles) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
 	dir := "."
 	if arguments["path"] != "" {
-		dir = arguments["path"]
+		dir = arguments["path"].(string)
 	}
 
 	var files []string
@@ -448,8 +447,8 @@ func (cf CreateFile) ToolDocument() client.D {
 	}
 }
 
-func (cf CreateFile) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
-	filePath := arguments["path"]
+func (cf CreateFile) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+	filePath := arguments["path"].(string)
 
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
 		return toolErrorResponse(cf.name, errors.New("file already exists")), nil
@@ -517,16 +516,11 @@ func (ce CodeEditor) ToolDocument() client.D {
 	}
 }
 
-func (ce CodeEditor) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
-	path := arguments["path"]
-	lineNumberStr := strings.TrimSpace(arguments["line_number"])
-	typeChange := strings.TrimSpace(arguments["type_change"])
-	lineChange := strings.TrimSpace(arguments["line_change"])
-
-	lineNumber, err := strconv.Atoi(lineNumberStr)
-	if err != nil {
-		return toolErrorResponse(ce.name, err), nil
-	}
+func (ce CodeEditor) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+	path := arguments["path"].(string)
+	lineNumber := int(arguments["line_number"].(float64))
+	typeChange := strings.TrimSpace(arguments["type_change"].(string))
+	lineChange := strings.TrimSpace(arguments["line_change"].(string))
 
 	content, err := os.ReadFile(path)
 	if err != nil {

@@ -124,7 +124,7 @@ func (cln *SSEClient[T]) Do(ctx context.Context, method string, endpoint string,
 
 			var v T
 			if err := json.Unmarshal([]byte(line), &v); err != nil {
-				cln.log(ctx, "sseclient: rawRequest:", "Unmarshal", err)
+				cln.log(ctx, "sseclient: rawRequest:", "Unmarshal", err, "line", line)
 				return
 			}
 
