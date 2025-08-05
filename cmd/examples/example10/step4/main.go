@@ -84,13 +84,13 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 	rf := NewReadFile()
 	lf := NewListFiles()
 	cf := NewCreateFile()
-	ce := NewCodeEditor()
+	gce := NewGoCodeEditor()
 
 	tools := map[string]Tool{
-		rf.Name(): rf,
-		lf.Name(): lf,
-		cf.Name(): cf,
-		ce.Name(): ce,
+		rf.Name():  rf,
+		lf.Name():  lf,
+		cf.Name():  cf,
+		gce.Name(): gce,
 	}
 
 	toolDocs := make([]client.D, 0, len(tools))
@@ -107,11 +107,16 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 }
 
 var systemPrompt = `You are a helpful coding assistant that has tools to assist
-you in coding. After you request a tool call, you will receive a JSON document
-with two fields, "status" and "data". Always check the "status" field to know if
-the call "SUCCEED" or "FAILED". The information you need to respond will be
-provided under the "data" field. If the called "FAILED", just inform the user
-and don't try using the tool again for the current response.`
+you in coding.
+
+After you request a tool call, you will receive a JSON document with two fields,
+"status" and "data". Always check the "status" field to know if the call "SUCCEED"
+or "FAILED". The information you need to respond will be provided under the "data"
+field. If the called "FAILED", just inform the user and don't try using the tool
+again for the current response.
+
+When reading Go source code always start counting lines of code from the top of
+the source code file.`
 
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D
@@ -175,7 +180,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			case len(resp.Message.ToolCalls) > 0:
 				result, err := a.callTools(ctx, resp.Message.ToolCalls)
 				if err != nil {
-					fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: %s", err)
+					fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: %s\n\n", err)
 				}
 
 				if len(result) > 0 {
@@ -216,7 +221,7 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) (cli
 			continue
 		}
 
-		fmt.Printf("\u001b[92mtool\u001b[0m: %s(%s)\n", tool.Name(), toolCall.Function.Arguments)
+		fmt.Printf("\u001b[92mtool\u001b[0m: %s(%v)\n", tool.Name(), toolCall.Function.Arguments)
 		fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
 
 		resp, err := tool.Call(ctx, toolCall.Function.Arguments)
@@ -282,10 +287,14 @@ func toolErrorResponse(toolName string, err error) client.D {
 		}
 	}
 
+	content := string(json)
+
+	fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: %s\n\n", content)
+
 	return client.D{
 		"role":    "tool",
 		"name":    toolName,
-		"content": string(json),
+		"content": content,
 	}
 }
 
@@ -470,32 +479,32 @@ func (cf CreateFile) Call(ctx context.Context, arguments map[string]any) (client
 
 // =============================================================================
 
-type CodeEditor struct {
+type GoCodeEditor struct {
 	name string
 }
 
-func NewCodeEditor() CodeEditor {
-	return CodeEditor{
-		name: "code_editor",
+func NewGoCodeEditor() GoCodeEditor {
+	return GoCodeEditor{
+		name: "golang_code_editor",
 	}
 }
 
-func (ce CodeEditor) Name() string {
-	return ce.name
+func (gce GoCodeEditor) Name() string {
+	return gce.name
 }
 
-func (ce CodeEditor) ToolDocument() client.D {
+func (gce GoCodeEditor) ToolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
-			"name":        ce.name,
-			"description": "",
+			"name":        gce.name,
+			"description": "Edit Golang source code files including adding, replacing, and deleting lines.",
 			"parameters": client.D{
 				"type": "object",
 				"properties": client.D{
 					"path": client.D{
 						"type":        "string",
-						"description": "The path to the file",
+						"description": "The path to the Golang source code file",
 					},
 					"line_number": client.D{
 						"type":        "integer",
@@ -516,7 +525,7 @@ func (ce CodeEditor) ToolDocument() client.D {
 	}
 }
 
-func (ce CodeEditor) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+func (gce GoCodeEditor) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
 	path := arguments["path"].(string)
 	lineNumber := int(arguments["line_number"].(float64))
 	typeChange := strings.TrimSpace(arguments["type_change"].(string))
@@ -524,14 +533,14 @@ func (ce CodeEditor) Call(ctx context.Context, arguments map[string]any) (client
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return toolErrorResponse(ce.name, err), nil
+		return toolErrorResponse(gce.name, err), nil
 	}
 
 	fset := token.NewFileSet()
 	lines := strings.Split(string(content), "\n")
 
 	if lineNumber < 1 || lineNumber > len(lines) {
-		return toolErrorResponse(ce.name, fmt.Errorf("line number %d is out of range (1-%d)", lineNumber, len(lines))), nil
+		return toolErrorResponse(gce.name, fmt.Errorf("line number %d is out of range (1-%d)", lineNumber, len(lines))), nil
 	}
 
 	switch typeChange {
@@ -553,14 +562,14 @@ func (ce CodeEditor) Call(ctx context.Context, arguments map[string]any) (client
 		}
 
 	default:
-		return toolErrorResponse(ce.name, fmt.Errorf("unsupported change type: %s, please inform the user", typeChange)), nil
+		return toolErrorResponse(gce.name, fmt.Errorf("unsupported change type: %s, please inform the user", typeChange)), nil
 	}
 
 	modifiedContent := strings.Join(lines, "\n")
 
 	_, err = parser.ParseFile(fset, path, modifiedContent, parser.ParseComments)
 	if err != nil {
-		return toolErrorResponse(ce.name, fmt.Errorf("syntax error after modification: %s, please inform the user", err)), nil
+		return toolErrorResponse(gce.name, fmt.Errorf("syntax error after modification: %s, please inform the user", err)), nil
 	}
 
 	formattedContent, err := format.Source([]byte(modifiedContent))
@@ -570,7 +579,7 @@ func (ce CodeEditor) Call(ctx context.Context, arguments map[string]any) (client
 
 	err = os.WriteFile(path, formattedContent, 0644)
 	if err != nil {
-		return toolErrorResponse(ce.name, fmt.Errorf("write file: %s", err)), nil
+		return toolErrorResponse(gce.name, fmt.Errorf("write file: %s", err)), nil
 	}
 
 	var action string
@@ -583,5 +592,5 @@ func (ce CodeEditor) Call(ctx context.Context, arguments map[string]any) (client
 		action = fmt.Sprintf("Deleted line %d", lineNumber)
 	}
 
-	return toolSuccessResponse(ce.name, "message", action), nil
+	return toolSuccessResponse(gce.name, "message", action), nil
 }

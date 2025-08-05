@@ -76,7 +76,7 @@ ollama-pull:
 	ollama pull mxbai-embed-large
 	ollama pull llama3.2
 	ollama pull llama3.2-vision
-	ollama pull qwen3:8b
+	ollama pull qwen3:32b
 
 python-install:
 	rm -rf .venv
