@@ -14,6 +14,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -253,9 +254,29 @@ func (gw GetWeather) ToolDocument() client.D {
 }
 
 func (gw GetWeather) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+	data := map[string]any{
+		"temperature": 28,
+		"humidity":    80,
+		"wind_speed":  10,
+		"description": "hot and humid",
+	}
+
+	info := struct {
+		Status string         `json:"status"`
+		Data   map[string]any `json:"data"`
+	}{
+		Status: "SUCCESS",
+		Data:   data,
+	}
+
+	json, err := json.Marshal(info)
+	if err != nil {
+		return client.D{}, err
+	}
+
 	return client.D{
 		"role":    "tool",
 		"name":    gw.name,
-		"content": "hot and humid, 28 degrees celcius",
+		"content": string(json),
 	}, nil
 }

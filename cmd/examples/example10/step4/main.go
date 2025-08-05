@@ -15,13 +15,18 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"log"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
@@ -79,12 +84,14 @@ type Agent struct {
 func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (string, bool)) *Agent {
 	rf := NewReadFile()
 	lf := NewListFiles()
-	ef := NewEditReplaceFile()
+	cf := NewCreateFile()
+	ce := NewCodeEditor()
 
 	tools := map[string]Tool{
 		rf.Name(): rf,
 		lf.Name(): lf,
-		ef.Name(): ef,
+		cf.Name(): cf,
+		ce.Name(): ce,
 	}
 
 	toolDocs := make([]client.D, 0, len(tools))
@@ -100,13 +107,20 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 	}
 }
 
+var systemPrompt = `You are a helpful coding assistant that has tools to assist
+you in coding. After you request a tool call, you will receive a JSON document
+with two fields, "status" and "data". Always check the "status" field to know if
+the call "SUCCEED" or "FAILED". The information you need to respond will be
+provided under the "data" field. If the called "FAILED", just inform the user
+and don't try using the tool again for the current response.`
+
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D
 	var inToolCall bool
 
 	conversation = append(conversation, client.D{
 		"role":    "system",
-		"content": "You are a helpful coding assistant that has tools to access the file system.",
+		"content": systemPrompt,
 	})
 
 	fmt.Println("Chat with qwen3 (use 'ctrl-c' to quit)")
@@ -219,6 +233,65 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) (cli
 
 // =============================================================================
 
+func toolSuccessResponse(toolName string, values ...any) client.D {
+	data := make(map[string]any)
+	for i := 0; i < len(values); i = i + 2 {
+		data[values[i].(string)] = values[i+1]
+	}
+
+	info := struct {
+		Status string         `json:"status"`
+		Data   map[string]any `json:"data"`
+	}{
+		Status: "SUCCESS",
+		Data:   data,
+	}
+
+	json, err := json.Marshal(info)
+	if err != nil {
+		return client.D{
+			"role":    "tool",
+			"name":    "error",
+			"content": `{"status": "FAILED", "data": "error marshaling tool response"}`,
+		}
+	}
+
+	return client.D{
+		"role":    "tool",
+		"name":    toolName,
+		"content": string(json),
+	}
+}
+
+func toolErrorResponse(toolName string, err error) client.D {
+	data := map[string]any{"error": err.Error()}
+
+	info := struct {
+		Status string         `json:"status"`
+		Data   map[string]any `json:"data"`
+	}{
+		Status: "FAILED",
+		Data:   data,
+	}
+
+	json, err := json.Marshal(info)
+	if err != nil {
+		return client.D{
+			"role":    "tool",
+			"name":    "error",
+			"content": `{"status": "FAILED", "data": "error marshaling tool response"}`,
+		}
+	}
+
+	return client.D{
+		"role":    "tool",
+		"name":    toolName,
+		"content": string(json),
+	}
+}
+
+// =============================================================================
+
 type ReadFile struct {
 	name string
 }
@@ -256,14 +329,10 @@ func (rf ReadFile) ToolDocument() client.D {
 func (rf ReadFile) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
 	content, err := os.ReadFile(arguments["path"])
 	if err != nil {
-		return client.D{}, fmt.Errorf("read file: %w", err)
+		return toolErrorResponse(rf.name, err), nil
 	}
 
-	return client.D{
-		"role":    "tool",
-		"name":    rf.name,
-		"content": string(content),
-	}, nil
+	return toolSuccessResponse(rf.name, "file_contents", string(content)), nil
 }
 
 // =============================================================================
@@ -337,38 +406,34 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]string) (clie
 	})
 
 	if err != nil {
-		return client.D{}, err
+		return toolErrorResponse(lf.name, err), nil
 	}
 
-	return client.D{
-		"role":    "tool",
-		"name":    lf.name,
-		"content": strings.Join(files, "\n"),
-	}, nil
+	return toolSuccessResponse(lf.name, "files", files), nil
 }
 
 // =============================================================================
 
-type EditReplaceFile struct {
+type CreateFile struct {
 	name string
 }
 
-func NewEditReplaceFile() EditReplaceFile {
-	return EditReplaceFile{
-		name: "edit_replace_file",
+func NewCreateFile() CreateFile {
+	return CreateFile{
+		name: "create_file",
 	}
 }
 
-func (ef EditReplaceFile) Name() string {
-	return ef.name
+func (cf CreateFile) Name() string {
+	return cf.name
 }
 
-func (ef EditReplaceFile) ToolDocument() client.D {
+func (cf CreateFile) ToolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
-			"name":        ef.name,
-			"description": "Make replace edits to a text file. Replaces 'old_str' with 'new_str' in the given file. 'old_str' and 'new_str' MUST be different from each other. If the file specified with path doesn't exist, it will be created with a sample hello world for that file type.",
+			"name":        cf.name,
+			"description": "Create a new file",
 			"parameters": client.D{
 				"type": "object",
 				"properties": client.D{
@@ -376,72 +441,153 @@ func (ef EditReplaceFile) ToolDocument() client.D {
 						"type":        "string",
 						"description": "The path to the file",
 					},
-					"old_str": client.D{
-						"type":        "string",
-						"description": "Text to search for - must match exactly and must only have one match exactly",
-					},
-					"new_str": client.D{
-						"type":        "string",
-						"description": "Text to replace old_str with",
-					},
 				},
-				"required": []string{"path", "old_str", "new_str"},
+				"required": []string{"path"},
 			},
 		},
 	}
 }
 
-func (ef EditReplaceFile) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
-	path := arguments["path"]
-	oldStr := strings.TrimSpace(arguments["old_str"])
-	newStr := strings.TrimSpace(arguments["new_str"])
+func (cf CreateFile) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+	filePath := arguments["path"]
 
-	if path == "" || oldStr == newStr {
-		return client.D{}, fmt.Errorf("invalid input parameters")
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		return toolErrorResponse(cf.name, errors.New("file already exists")), nil
+	}
+
+	dir := path.Dir(filePath)
+	if dir != "." {
+		os.MkdirAll(dir, 0755)
+	}
+
+	f, err := os.Create(filePath)
+	if err != nil {
+		return toolErrorResponse(cf.name, err), nil
+	}
+	f.Close()
+
+	return toolSuccessResponse(cf.name, "message", "File created successfully"), nil
+}
+
+// =============================================================================
+
+type CodeEditor struct {
+	name string
+}
+
+func NewCodeEditor() CodeEditor {
+	return CodeEditor{
+		name: "code_editor",
+	}
+}
+
+func (ce CodeEditor) Name() string {
+	return ce.name
+}
+
+func (ce CodeEditor) ToolDocument() client.D {
+	return client.D{
+		"type": "function",
+		"function": client.D{
+			"name":        ce.name,
+			"description": "",
+			"parameters": client.D{
+				"type": "object",
+				"properties": client.D{
+					"path": client.D{
+						"type":        "string",
+						"description": "The path to the file",
+					},
+					"line_number": client.D{
+						"type":        "integer",
+						"description": "The line number for the code change",
+					},
+					"type_change": client.D{
+						"type":        "string",
+						"description": "The type of change to make: add, replace, delete",
+					},
+					"line_change": client.D{
+						"type":        "string",
+						"description": "The text to add, replace, delete",
+					},
+				},
+				"required": []string{"path", "line_number", "type_change", "line_change"},
+			},
+		},
+	}
+}
+
+func (ce CodeEditor) Call(ctx context.Context, arguments map[string]string) (client.D, error) {
+	path := arguments["path"]
+	lineNumberStr := strings.TrimSpace(arguments["line_number"])
+	typeChange := strings.TrimSpace(arguments["type_change"])
+	lineChange := strings.TrimSpace(arguments["line_change"])
+
+	lineNumber, err := strconv.Atoi(lineNumberStr)
+	if err != nil {
+		return toolErrorResponse(ce.name, err), nil
 	}
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return ef.createNewFile(path, newStr)
-		}
-		return client.D{}, fmt.Errorf("reading file: %w", err)
+		return toolErrorResponse(ce.name, err), nil
 	}
 
-	if oldStr != "" {
-		oldContent := string(content)
+	fset := token.NewFileSet()
+	lines := strings.Split(string(content), "\n")
 
-		if !strings.Contains(oldContent, oldStr) {
-			return client.D{}, fmt.Errorf("%s not found in file", oldStr)
-		}
-
-		newContent := strings.ReplaceAll(oldContent, oldStr, newStr)
-
-		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-			return client.D{}, fmt.Errorf("writing file: %w", err)
-		}
+	if lineNumber < 1 || lineNumber > len(lines) {
+		return toolErrorResponse(ce.name, fmt.Errorf("line number %d is out of range (1-%d)", lineNumber, len(lines))), nil
 	}
 
-	fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: File %s edited successfully", path)
+	switch typeChange {
+	case "add":
+		newLines := make([]string, 0, len(lines)+1)
+		newLines = append(newLines, lines[:lineNumber-1]...)
+		newLines = append(newLines, lineChange)
+		newLines = append(newLines, lines[lineNumber-1:]...)
+		lines = newLines
 
-	return client.D{}, nil
-}
+	case "replace":
+		lines[lineNumber-1] = lineChange
 
-func (ef EditReplaceFile) createNewFile(filePath string, content string) (client.D, error) {
-	dir := path.Dir(filePath)
-	if dir != "." {
-		err := os.MkdirAll(dir, 0755)
-		if err != nil {
-			return client.D{}, fmt.Errorf("creating directory: %w", err)
+	case "delete":
+		if len(lines) == 1 {
+			lines = []string{""}
+		} else {
+			lines = append(lines[:lineNumber-1], lines[lineNumber:]...)
 		}
+
+	default:
+		return toolErrorResponse(ce.name, fmt.Errorf("unsupported change type: %s, please inform the user", typeChange)), nil
 	}
 
-	err := os.WriteFile(filePath, []byte(content), 0644)
+	modifiedContent := strings.Join(lines, "\n")
+
+	_, err = parser.ParseFile(fset, path, modifiedContent, parser.ParseComments)
 	if err != nil {
-		return client.D{}, fmt.Errorf("writing file: %w", err)
+		return toolErrorResponse(ce.name, fmt.Errorf("syntax error after modification: %s, please inform the user", err)), nil
 	}
 
-	fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: File %s created successfully", filePath)
+	formattedContent, err := format.Source([]byte(modifiedContent))
+	if err != nil {
+		formattedContent = []byte(modifiedContent)
+	}
 
-	return client.D{}, nil
+	err = os.WriteFile(path, formattedContent, 0644)
+	if err != nil {
+		return toolErrorResponse(ce.name, fmt.Errorf("write file: %s", err)), nil
+	}
+
+	var action string
+	switch typeChange {
+	case "add":
+		action = fmt.Sprintf("Added line at position %d", lineNumber)
+	case "replace":
+		action = fmt.Sprintf("Replaced line %d", lineNumber)
+	case "delete":
+		action = fmt.Sprintf("Deleted line %d", lineNumber)
+	}
+
+	return toolSuccessResponse(ce.name, "message", action), nil
 }
