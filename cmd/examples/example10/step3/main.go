@@ -125,7 +125,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		d := client.D{
 			"model":       "qwen3:8b",
 			"messages":    conversation,
-			"max_tokens":  0,
+			"max_tokens":  32768,
 			"temperature": 0.1,
 			"top_p":       0.1,
 			"top_k":       50,
@@ -134,7 +134,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			// ADDING TOOL CALLING TO THE REQUEST.
 			"tools":          a.toolDocuments,
 			"tool_selection": "auto",
-			"options":        client.D{"num_ctx": 32000},
+			"options":        client.D{"num_ctx": 32768},
 		}
 
 		ch := make(chan client.Chat, 100)
