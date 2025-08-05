@@ -167,7 +167,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			fmt.Print("\n")
 
 			content := strings.Join(chunks, " ")
-			content = strings.TrimLeft(content, "\n")
 
 			if content != "" {
 				conversation = append(conversation, client.D{
