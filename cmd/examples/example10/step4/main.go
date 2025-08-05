@@ -143,8 +143,16 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 
 		var chunks []string
+		var thinking bool
 
 		for resp := range ch {
+			switch resp.Message.Content {
+			case "<think>":
+				thinking = true
+			case "</think>":
+				thinking = false
+			}
+
 			switch {
 			case len(resp.Message.ToolCalls) > 0:
 				result, err := a.callTools(ctx, resp.Message.ToolCalls)
@@ -159,7 +167,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 			case resp.Message.Content != "":
 				fmt.Print(resp.Message.Content)
-				chunks = append(chunks, resp.Message.Content)
+				if !thinking && resp.Message.Content != "</think>" {
+					chunks = append(chunks, resp.Message.Content)
+				}
 			}
 		}
 
@@ -167,6 +177,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			fmt.Print("\n")
 
 			content := strings.Join(chunks, " ")
+			content = strings.TrimLeft(content, "\n")
 
 			if content != "" {
 				conversation = append(conversation, client.D{
