@@ -132,7 +132,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		d := client.D{
 			"model":          "qwen3:8b",
 			"messages":       conversation,
-			"max_tokens":     1000,
+			"max_tokens":     0,
 			"temperature":    0.1,
 			"top_p":          0.1,
 			"top_k":          50,
