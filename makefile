@@ -135,6 +135,9 @@ openwebui:
 vllm-install:
 	uv pip install vllm
 
+vllm-update:
+	uv pip install --upgrade vllm
+
 vllm-run:
 	source .env && uv run vllm serve --host 0.0.0.0 --port 8000 "NousResearch/Hermes-3-Llama-3.1-8B"
 
