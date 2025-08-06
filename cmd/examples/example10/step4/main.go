@@ -110,7 +110,7 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 }
 
 var systemPrompt = `You are a helpful coding assistant that has tools to assist
-you in coding. 
+you in coding.
 
 After you request a tool call, you will receive a JSON document with two fields,
 "status" and "data". Always check the "status" field to know if the call "SUCCEED"
