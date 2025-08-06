@@ -76,7 +76,6 @@ ollama-pull:
 	ollama pull mxbai-embed-large
 	ollama pull llama3.2
 	ollama pull llama3.2-vision
-	ollama pull qwen3:32b
 	ollama pull qwen3:8b
 
 python-install:

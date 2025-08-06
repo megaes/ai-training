@@ -31,7 +31,10 @@ import (
 	"github.com/ardanlabs/ai-training/foundation/client"
 )
 
-const url = "http://localhost:11434/api/chat"
+const (
+	url   = "http://localhost:11434/api/chat"
+	model = "qwen3:8b"
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -146,7 +149,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		inToolCall = false
 
 		d := client.D{
-			"model":          "qwen3:8b",
+			"model":          model,
 			"messages":       conversation,
 			"max_tokens":     32768,
 			"temperature":    0.1,
