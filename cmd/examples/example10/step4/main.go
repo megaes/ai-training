@@ -119,7 +119,10 @@ field. If the called "FAILED", just inform the user and don't try using the tool
 again for the current response.
 
 When reading Go source code always start counting lines of code from the top of
-the source code file.`
+the source code file.
+
+Reasoning: high
+`
 
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D
