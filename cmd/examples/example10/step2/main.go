@@ -13,10 +13,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
 )
@@ -30,17 +30,14 @@ func main() {
 }
 
 func run() error {
-	if err := weatherQuestion(); err != nil {
+	if err := weatherQuestion(context.TODO()); err != nil {
 		return fmt.Errorf("weatherQuestion: %w", err)
 	}
 
 	return nil
 }
 
-func weatherQuestion() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func weatherQuestion(ctx context.Context) error {
 	logger := func(ctx context.Context, msg string, v ...any) {
 		s := fmt.Sprintf("msg: %s", msg)
 		for i := 0; i < len(v); i = i + 2 {
@@ -69,7 +66,7 @@ func weatherQuestion() error {
 	d := client.D{
 		"model":       "qwen3:32b",
 		"messages":    conversation,
-		"max_tokens":  1000,
+		"max_tokens":  32768,
 		"temperature": 0.1,
 		"top_p":       0.1,
 		"top_k":       50,
@@ -78,7 +75,7 @@ func weatherQuestion() error {
 			getWeather.ToolDocument(),
 		},
 		"tool_selection": "auto",
-		"options":        client.D{"num_ctx": 32000},
+		"options":        client.D{"num_ctx": 32768},
 	}
 
 	ch := make(chan client.Chat, 100)
@@ -97,11 +94,7 @@ func weatherQuestion() error {
 			if resp.Message.ToolCalls[0].Function.Name == "get_current_weather" {
 				fmt.Printf("Model Asking For Tool Call:\n\n%s(%s)\n\n", resp.Message.ToolCalls[0].Function.Name, resp.Message.ToolCalls[0].Function.Arguments)
 
-				resp, err := getWeather.Call(ctx, resp.Message.ToolCalls[0].Function.Arguments)
-				if err != nil {
-					return fmt.Errorf("call: %w", err)
-				}
-
+				resp := getWeather.Call(ctx, resp.Message.ToolCalls[0].Function.Arguments)
 				conversation = append(conversation, resp)
 
 				fmt.Printf("Tool Call Result:\n\n%s\n\n", resp)
@@ -135,7 +128,7 @@ func weatherQuestion() error {
 	// -------------------------------------------------------------------------
 	// The model should provide the answer based on the tool call
 
-	fmt.Print("Final Result:\n")
+	fmt.Print("Final Result:\n\n")
 
 	for resp := range ch {
 		fmt.Print(resp.Message.Content)
@@ -184,10 +177,34 @@ func (gw GetWeather) ToolDocument() client.D {
 	}
 }
 
-func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) client.D {
+	data := map[string]any{
+		"temperature": 28,
+		"humidity":    80,
+		"wind_speed":  10,
+		"description": "hot and humid",
+	}
+
+	info := struct {
+		Status string         `json:"status"`
+		Data   map[string]any `json:"data"`
+	}{
+		Status: "SUCCESS",
+		Data:   data,
+	}
+
+	json, err := json.Marshal(info)
+	if err != nil {
+		return client.D{
+			"role":    "tool",
+			"name":    gw.name,
+			"content": err.Error(),
+		}
+	}
+
 	return client.D{
 		"role":    "tool",
-		"name":    gw.Name(),
-		"content": "hot and humid, 28 degrees celcius",
-	}, nil
+		"name":    gw.name,
+		"content": string(json),
+	}
 }

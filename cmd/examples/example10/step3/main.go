@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -64,13 +63,12 @@ func run() error {
 type Tool interface {
 	Name() string
 	ToolDocument() client.D
-	Call(ctx context.Context, arguments map[string]any) (client.D, error)
+	Call(ctx context.Context, arguments map[string]any) client.D
 }
 
 // =============================================================================
 
-// WE NEED TO ADD TOOL SUPPORT TO THE AGENT.
-// WE WILL ADD TWO NEW FIELDS AND PRE-CONSTRUCT ALL THE TOOLING.
+// WE NEED TO ADD TOOL SUPPORT TO THE AGENT AND ADD TWO NEW FIELDS.
 
 type Agent struct {
 	client         *client.SSEClient[client.Chat]
@@ -80,6 +78,8 @@ type Agent struct {
 }
 
 func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (string, bool)) *Agent {
+
+	// PRE-CONSTRUCT ALL THE TOOLING.
 	gw := NewGetWeather()
 	tools := map[string]Tool{
 		gw.Name(): gw,
@@ -117,8 +117,6 @@ func (a *Agent) Run(ctx context.Context) error {
 				"role":    "user",
 				"content": userInput,
 			})
-
-			fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
 		}
 
 		inToolCall = false
@@ -138,6 +136,8 @@ func (a *Agent) Run(ctx context.Context) error {
 			"options":        client.D{"num_ctx": 32768},
 		}
 
+		fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
+
 		ch := make(chan client.Chat, 100)
 		if err := a.client.Do(ctx, http.MethodPost, url, d, ch); err != nil {
 			return fmt.Errorf("do: %w", err)
@@ -147,6 +147,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		var thinking bool
 
 		for resp := range ch {
+
 			// SUPRESS THE THINK TAGS FROM THE CONVERSATION HISTORY. THEY
 			// ARE EXTRA TOKENS WE DON'T WANT TO SEND TO THE MODEL.
 			switch resp.Message.Content {
@@ -158,15 +159,11 @@ func (a *Agent) Run(ctx context.Context) error {
 
 			switch {
 			case len(resp.Message.ToolCalls) > 0:
-				// ADD SUPPORT FOR TOOL CALLING.
-				result, err := a.callTools(ctx, resp.Message.ToolCalls)
-				if err != nil {
-					fmt.Printf("\n\n\u001b[92mtool\u001b[0m: %s", err)
-					continue
-				}
 
-				if len(result) > 0 {
-					conversation = append(conversation, result)
+				// ADD SUPPORT FOR TOOL CALLING.
+				results := a.callTools(ctx, resp.Message.ToolCalls)
+				if len(results) > 0 {
+					conversation = append(conversation, results...)
 					inToolCall = true
 				}
 
@@ -196,25 +193,26 @@ func (a *Agent) Run(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) (client.D, error) {
+// WE NEED A FUNCTION THAT CALLS THE TOOLS AND RETURNS THE RESPONSES.
+
+func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []client.D {
+	var resps []client.D
+
 	for _, toolCall := range toolCalls {
 		tool, exists := a.tools[toolCall.Function.Name]
 		if !exists {
 			continue
 		}
 
-		fmt.Printf("\u001b[92mtool\u001b[0m: %s(%s)\n", tool.Name(), toolCall.Function.Arguments)
-		fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
+		fmt.Printf("\u001b[92mtool\u001b[0m: %s(%v)\n", tool.Name(), toolCall.Function.Arguments)
 
-		resp, err := tool.Call(ctx, toolCall.Function.Arguments)
-		if err != nil {
-			return client.D{}, fmt.Errorf("ERROR: %w", err)
-		}
+		resp := tool.Call(ctx, toolCall.Function.Arguments)
+		resps = append(resps, resp)
 
-		return resp, nil
+		fmt.Printf("%#v\n", resps)
 	}
 
-	return client.D{}, errors.New("no tools found")
+	return resps
 }
 
 // =============================================================================
@@ -253,7 +251,7 @@ func (gw GetWeather) ToolDocument() client.D {
 	}
 }
 
-func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) client.D {
 	data := map[string]any{
 		"temperature": 28,
 		"humidity":    80,
@@ -271,12 +269,16 @@ func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) (client
 
 	json, err := json.Marshal(info)
 	if err != nil {
-		return client.D{}, err
+		return client.D{
+			"role":    "tool",
+			"name":    gw.name,
+			"content": err.Error(),
+		}
 	}
 
 	return client.D{
 		"role":    "tool",
 		"name":    gw.name,
 		"content": string(json),
-	}, nil
+	}
 }

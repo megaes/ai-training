@@ -82,8 +82,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			break
 		}
 
-		fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
-
 		conversation = append(conversation, client.D{
 			"role":    "user",
 			"content": userInput,
@@ -100,6 +98,8 @@ func (a *Agent) Run(ctx context.Context) error {
 			"options":     client.D{"num_ctx": 32768},
 		}
 
+		fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
+
 		ch := make(chan client.Chat, 100)
 		if err := a.client.Do(ctx, http.MethodPost, url, d, ch); err != nil {
 			return fmt.Errorf("do: %w", err)
@@ -108,7 +108,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		var chunks []string
 
 		for resp := range ch {
-			if resp.Message.Content != "" {
+			switch {
+			case resp.Message.Content != "":
 				fmt.Print(resp.Message.Content)
 				chunks = append(chunks, resp.Message.Content)
 			}

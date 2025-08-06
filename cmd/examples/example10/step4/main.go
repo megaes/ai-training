@@ -68,7 +68,7 @@ func run() error {
 type Tool interface {
 	Name() string
 	ToolDocument() client.D
-	Call(ctx context.Context, arguments map[string]any) (client.D, error)
+	Call(ctx context.Context, arguments map[string]any) client.D
 }
 
 // =============================================================================
@@ -141,8 +141,6 @@ func (a *Agent) Run(ctx context.Context) error {
 				"role":    "user",
 				"content": userInput,
 			})
-
-			fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
 		}
 
 		inToolCall = false
@@ -159,6 +157,8 @@ func (a *Agent) Run(ctx context.Context) error {
 			"tool_selection": "auto",
 			"options":        client.D{"num_ctx": 32768},
 		}
+
+		fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
 
 		ch := make(chan client.Chat, 100)
 		if err := a.client.Do(ctx, http.MethodPost, url, d, ch); err != nil {
@@ -178,13 +178,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 			switch {
 			case len(resp.Message.ToolCalls) > 0:
-				result, err := a.callTools(ctx, resp.Message.ToolCalls)
-				if err != nil {
-					fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: %s\n\n", err)
-				}
-
-				if len(result) > 0 {
-					conversation = append(conversation, result)
+				results := a.callTools(ctx, resp.Message.ToolCalls)
+				if len(results) > 0 {
+					conversation = append(conversation, results...)
 					inToolCall = true
 				}
 
@@ -214,7 +210,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) (client.D, error) {
+func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []client.D {
+	var resps []client.D
+
 	for _, toolCall := range toolCalls {
 		tool, exists := a.tools[toolCall.Function.Name]
 		if !exists {
@@ -222,17 +220,14 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) (cli
 		}
 
 		fmt.Printf("\u001b[92mtool\u001b[0m: %s(%v)\n", tool.Name(), toolCall.Function.Arguments)
-		fmt.Print("\u001b[93m\nqwen3\u001b[0m: ")
 
-		resp, err := tool.Call(ctx, toolCall.Function.Arguments)
-		if err != nil {
-			return client.D{}, fmt.Errorf("ERROR: %w", err)
-		}
+		resp := tool.Call(ctx, toolCall.Function.Arguments)
+		resps = append(resps, resp)
 
-		return resp, nil
+		fmt.Printf("%#v\n", resps)
 	}
 
-	return client.D{}, errors.New("no tools found")
+	return resps
 }
 
 // =============================================================================
@@ -289,7 +284,7 @@ func toolErrorResponse(toolName string, err error) client.D {
 
 	content := string(json)
 
-	fmt.Printf("\n\n\u001b[92m\ntool\u001b[0m: %s\n\n", content)
+	fmt.Printf("\n\u001b[92m\ntool\u001b[0m: %s\n", content)
 
 	return client.D{
 		"role":    "tool",
@@ -334,13 +329,13 @@ func (rf ReadFile) ToolDocument() client.D {
 	}
 }
 
-func (rf ReadFile) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+func (rf ReadFile) Call(ctx context.Context, arguments map[string]any) client.D {
 	content, err := os.ReadFile(arguments["path"].(string))
 	if err != nil {
-		return toolErrorResponse(rf.name, err), nil
+		return toolErrorResponse(rf.name, err)
 	}
 
-	return toolSuccessResponse(rf.name, "file_contents", string(content)), nil
+	return toolSuccessResponse(rf.name, "file_contents", string(content))
 }
 
 // =============================================================================
@@ -379,7 +374,7 @@ func (lf ListFiles) ToolDocument() client.D {
 	}
 }
 
-func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) client.D {
 	dir := "."
 	if arguments["path"] != "" {
 		dir = arguments["path"].(string)
@@ -414,10 +409,10 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) (client.
 	})
 
 	if err != nil {
-		return toolErrorResponse(lf.name, err), nil
+		return toolErrorResponse(lf.name, err)
 	}
 
-	return toolSuccessResponse(lf.name, "files", files), nil
+	return toolSuccessResponse(lf.name, "files", files)
 }
 
 // =============================================================================
@@ -456,11 +451,11 @@ func (cf CreateFile) ToolDocument() client.D {
 	}
 }
 
-func (cf CreateFile) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+func (cf CreateFile) Call(ctx context.Context, arguments map[string]any) client.D {
 	filePath := arguments["path"].(string)
 
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
-		return toolErrorResponse(cf.name, errors.New("file already exists")), nil
+		return toolErrorResponse(cf.name, errors.New("file already exists"))
 	}
 
 	dir := path.Dir(filePath)
@@ -470,11 +465,11 @@ func (cf CreateFile) Call(ctx context.Context, arguments map[string]any) (client
 
 	f, err := os.Create(filePath)
 	if err != nil {
-		return toolErrorResponse(cf.name, err), nil
+		return toolErrorResponse(cf.name, err)
 	}
 	f.Close()
 
-	return toolSuccessResponse(cf.name, "message", "File created successfully"), nil
+	return toolSuccessResponse(cf.name, "message", "File created successfully")
 }
 
 // =============================================================================
@@ -525,7 +520,7 @@ func (gce GoCodeEditor) ToolDocument() client.D {
 	}
 }
 
-func (gce GoCodeEditor) Call(ctx context.Context, arguments map[string]any) (client.D, error) {
+func (gce GoCodeEditor) Call(ctx context.Context, arguments map[string]any) client.D {
 	path := arguments["path"].(string)
 	lineNumber := int(arguments["line_number"].(float64))
 	typeChange := strings.TrimSpace(arguments["type_change"].(string))
@@ -533,14 +528,14 @@ func (gce GoCodeEditor) Call(ctx context.Context, arguments map[string]any) (cli
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return toolErrorResponse(gce.name, err), nil
+		return toolErrorResponse(gce.name, err)
 	}
 
 	fset := token.NewFileSet()
 	lines := strings.Split(string(content), "\n")
 
 	if lineNumber < 1 || lineNumber > len(lines) {
-		return toolErrorResponse(gce.name, fmt.Errorf("line number %d is out of range (1-%d)", lineNumber, len(lines))), nil
+		return toolErrorResponse(gce.name, fmt.Errorf("line number %d is out of range (1-%d)", lineNumber, len(lines)))
 	}
 
 	switch typeChange {
@@ -562,14 +557,14 @@ func (gce GoCodeEditor) Call(ctx context.Context, arguments map[string]any) (cli
 		}
 
 	default:
-		return toolErrorResponse(gce.name, fmt.Errorf("unsupported change type: %s, please inform the user", typeChange)), nil
+		return toolErrorResponse(gce.name, fmt.Errorf("unsupported change type: %s, please inform the user", typeChange))
 	}
 
 	modifiedContent := strings.Join(lines, "\n")
 
 	_, err = parser.ParseFile(fset, path, modifiedContent, parser.ParseComments)
 	if err != nil {
-		return toolErrorResponse(gce.name, fmt.Errorf("syntax error after modification: %s, please inform the user", err)), nil
+		return toolErrorResponse(gce.name, fmt.Errorf("syntax error after modification: %s, please inform the user", err))
 	}
 
 	formattedContent, err := format.Source([]byte(modifiedContent))
@@ -579,7 +574,7 @@ func (gce GoCodeEditor) Call(ctx context.Context, arguments map[string]any) (cli
 
 	err = os.WriteFile(path, formattedContent, 0644)
 	if err != nil {
-		return toolErrorResponse(gce.name, fmt.Errorf("write file: %s", err)), nil
+		return toolErrorResponse(gce.name, fmt.Errorf("write file: %s", err))
 	}
 
 	var action string
@@ -592,5 +587,5 @@ func (gce GoCodeEditor) Call(ctx context.Context, arguments map[string]any) (cli
 		action = fmt.Sprintf("Deleted line %d", lineNumber)
 	}
 
-	return toolSuccessResponse(gce.name, "message", action), nil
+	return toolSuccessResponse(gce.name, "message", action)
 }
