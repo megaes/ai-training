@@ -176,7 +176,7 @@ deps-python-outdated:
 # ==============================================================================
 
 curl-tooling:
-	curl http://localhost:11434/api/chat \
+	curl http://localhost:11434/v1/chat/completions \
 	-H "Content-Type: application/json" \
 	-d '{ \
 	"model": "qwen3:8b", \
@@ -211,7 +211,7 @@ curl-tooling:
 	}'
 
 curl-tooling-stream:
-	curl http://localhost:11434/api/chat \
+	curl http://localhost:11434/v1/chat/completions \
 	-H "Content-Type: application/json" \
 	-d '{ \
 	"model": "qwen3:8b", \

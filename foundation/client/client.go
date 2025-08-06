@@ -136,7 +136,7 @@ func (cln *SSEClient[T]) Do(ctx context.Context, method string, endpoint string,
 			case ch <- v:
 
 			case <-ctx.Done():
-				cln.log(ctx, "sseclient: rawRequest:", "Context", err.Error())
+				cln.log(ctx, "sseclient: rawRequest:", "Context", ctx.Err().Error())
 				return
 			}
 		}
