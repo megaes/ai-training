@@ -107,7 +107,7 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 }
 
 var systemPrompt = `You are a helpful coding assistant that has tools to assist
-you in coding.
+you in coding. 
 
 After you request a tool call, you will receive a JSON document with two fields,
 "status" and "data". Always check the "status" field to know if the call "SUCCEED"
@@ -146,7 +146,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		inToolCall = false
 
 		d := client.D{
-			"model":          "qwen3:32b",
+			"model":          "qwen3:8b",
 			"messages":       conversation,
 			"max_tokens":     32768,
 			"temperature":    0.1,
@@ -314,28 +314,95 @@ func (rf ReadFile) ToolDocument() client.D {
 		"type": "function",
 		"function": client.D{
 			"name":        rf.name,
-			"description": "Read the contents of a given relative file path. Use this when you want to see what's inside a file. Do not use this with directory names.",
+			"description": "Read the contents of a given file path or search for files containing a pattern. When searching file contents, returns line numbers where the pattern is found.",
 			"parameters": client.D{
 				"type": "object",
 				"properties": client.D{
 					"path": client.D{
 						"type":        "string",
-						"description": "The relative path of a file in the working directory.",
+						"description": "The relative path of a file in the working directory. If pattern is provided, this can be a directory path to search in.",
+					},
+					"pattern": client.D{
+						"type":        "string",
+						"description": " The pattern to search for in file contents. If not provided keep it empty. If provided, will search for files containing this pattern instead of reading a specific file.",
 					},
 				},
-				"required": []string{"path"},
+				"required": []string{"path", "pattern"},
 			},
 		},
 	}
 }
 
 func (rf ReadFile) Call(ctx context.Context, arguments map[string]any) client.D {
-	content, err := os.ReadFile(arguments["path"].(string))
-	if err != nil {
-		return toolErrorResponse(rf.name, err)
+	dir := "."
+	if arguments["path"] != "" {
+		dir = arguments["path"].(string)
 	}
 
-	return toolSuccessResponse(rf.name, "file_contents", string(content))
+	pattern := ""
+	if arguments["pattern"] != "" {
+		pattern = arguments["pattern"].(string)
+	}
+
+	switch pattern {
+	case "":
+		content, err := os.ReadFile(dir)
+		if err != nil {
+			return toolErrorResponse(rf.name, err)
+		}
+		return toolSuccessResponse(rf.name, "file_contents", string(content))
+
+	default:
+		var files []any
+		err := filepath.Walk(dir, func(filePath string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			relPath, err := filepath.Rel(dir, filePath)
+			if err != nil {
+				return err
+			}
+
+			if strings.Contains(relPath, "zarf") ||
+				strings.Contains(relPath, "vendor") ||
+				strings.Contains(relPath, ".venv") ||
+				strings.Contains(relPath, ".git") {
+				return nil
+			}
+
+			// Search file contents for pattern
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return nil
+			}
+
+			lines := strings.Split(string(content), "\n")
+			var matchingLines []int
+
+			for i, line := range lines {
+				if strings.Contains(strings.ToLower(line), strings.ToLower(pattern)) {
+					matchingLines = append(matchingLines, i+1) // Line numbers are 1-indexed
+				}
+			}
+
+			if len(matchingLines) > 0 {
+				fileInfo := map[string]any{
+					"file":         relPath,
+					"line_numbers": matchingLines,
+				}
+				files = append(files, fileInfo)
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			return toolErrorResponse(rf.name, err)
+		}
+
+		return toolSuccessResponse(rf.name, "files", files)
+	}
 }
 
 // =============================================================================
