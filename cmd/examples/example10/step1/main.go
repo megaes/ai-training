@@ -26,7 +26,7 @@ import (
 
 const (
 	url   = "http://localhost:11434/api/chat"
-	model = "qwen3:8b"
+	model = "gpt-oss:latest"
 )
 
 func main() {
@@ -76,7 +76,7 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D
 
-	fmt.Println("Chat with qwen3 (use 'ctrl-c' to quit)")
+	fmt.Printf("Chat with %s (use 'ctrl-c' to quit)\n", model)
 
 	for {
 		fmt.Print("\u001b[94m\nYou\u001b[0m: ")

@@ -26,7 +26,7 @@ import (
 
 const (
 	url   = "http://localhost:11434/api/chat"
-	model = "qwen3:8b"
+	model = "gpt-oss:latest"
 )
 
 func main() {
@@ -105,7 +105,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D
 	var inToolCall bool
 
-	fmt.Println("Chat with qwen3 (use 'ctrl-c' to quit)")
+	fmt.Printf("Chat with %s (use 'ctrl-c' to quit)\n", model)
 
 	for {
 		// CHECK IF WE ARE IN A TOOL CALL BEFORE ASKING FOR INPUT.

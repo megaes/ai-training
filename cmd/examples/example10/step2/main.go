@@ -23,7 +23,7 @@ import (
 
 const (
 	url   = "http://localhost:11434/api/chat"
-	model = "qwen3:8b"
+	model = "gpt-oss:latest"
 )
 
 func main() {
