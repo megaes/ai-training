@@ -48,8 +48,17 @@ example7:
 example8:
 	go run cmd/examples/example8/main.go
 
-example9:
-	go run cmd/examples/example9/main.go
+example9-step1:
+	go run cmd/examples/example9/step1/main.go
+
+example9-step2:
+	go run cmd/examples/example9/step2/main.go
+
+example9-step3:
+	go run cmd/examples/example9/step3/main.go
+
+example9-step4:
+	go run cmd/examples/example9/step4/main.go
 
 example10-step1:
 	go run cmd/examples/example10/step1/main.go
