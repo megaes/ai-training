@@ -129,9 +129,9 @@ func (a *Agent) Run(ctx context.Context) error {
 			"model":       model,
 			"messages":    conversation,
 			"max_tokens":  contextWindow,
-			"temperature": 0.1,
+			"temperature": 0.0,
 			"top_p":       0.1,
-			"top_k":       50,
+			"top_k":       1,
 			"stream":      true,
 
 			// ADDING TOOL CALLING TO THE REQUEST.

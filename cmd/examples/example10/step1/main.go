@@ -91,13 +91,17 @@ func (a *Agent) Run(ctx context.Context) error {
 			"content": userInput,
 		})
 
+		// temperature: Controls randomness (0.0 = very deterministic)
+		// top_p: Nucleus sampling threshold (0.1 = only top 10% probability tokens)
+		// top_k: Consider only top 1 token per step for maximum precision in tool calling
+
 		d := client.D{
 			"model":       model,
 			"messages":    conversation,
 			"max_tokens":  contextWindow,
-			"temperature": 0.1,
+			"temperature": 0.0,
 			"top_p":       0.1,
-			"top_k":       50,
+			"top_k":       1,
 			"stream":      true,
 			"options":     client.D{"num_ctx": contextWindow},
 		}
