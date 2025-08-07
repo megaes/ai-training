@@ -24,7 +24,7 @@ import (
 const (
 	url           = "http://localhost:11434/v1/chat/completions"
 	model         = "gpt-oss:latest"
-	contextWindow = 168 * 1024 // 168KB
+	contextWindow = 168 * 1024 // 168K tokens
 )
 
 func main() {
@@ -231,7 +231,7 @@ func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) client.
 		Data:   data,
 	}
 
-	json, err := json.Marshal(info)
+	resp, err := json.Marshal(info)
 	if err != nil {
 		return client.D{
 			"role":    "tool",
@@ -243,6 +243,6 @@ func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) client.
 	return client.D{
 		"role":    "tool",
 		"name":    gw.name,
-		"content": string(json),
+		"content": string(resp),
 	}
 }

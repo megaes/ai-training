@@ -27,7 +27,7 @@ import (
 const (
 	url           = "http://localhost:11434/v1/chat/completions"
 	model         = "gpt-oss:latest"
-	contextWindow = 168 * 1024 // 168KB
+	contextWindow = 168 * 1024 // 168K tokens
 )
 
 func main() {

@@ -7,7 +7,7 @@
 //
 // # This requires running the following commands:
 //
-//  $ make ollama-up  // This starts the Ollama service.
+//  $ make ollama-up // This starts the Ollama service.
 //
 // # Extra reading and watching:
 //
@@ -41,15 +41,18 @@ func (d data) Vector() []float32 {
 // =============================================================================
 
 func main() {
-	llm, err := ollama.New(ollama.WithModel("mxbai-embed-large"))
+	llm, err := ollama.New(
+		ollama.WithModel("mxbai-embed-large"),
+		ollama.WithServerURL("http://localhost:11434"),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// -------------------------------------------------------------------------
 
-	// Apply the feature vectors to the hand crafted data points. This time you
-	// need to use words since we are using a word based model.
+	// Apply the feature vectors to the hand crafted data points.
+	// This time you need to use words since we are using a word based model.
 	dataPoints := []vector.Data{
 		data{Name: "Horse   ", Text: "Animal, Female"},
 		data{Name: "Man     ", Text: "Human,  Male,   Pants, Poor, Worker"},

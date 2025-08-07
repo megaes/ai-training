@@ -79,7 +79,10 @@ func vectorSearch(ctx context.Context, question string) ([]searchResult, error) 
 	// Use ollama to generate a vector embedding for the question.
 
 	// Open a connection with ollama to access the model.
-	llm, err := ollama.New(ollama.WithModel("mxbai-embed-large"))
+	llm, err := ollama.New(
+		ollama.WithModel("mxbai-embed-large"),
+		ollama.WithServerURL("http://localhost:11434"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("ollama: %w", err)
 	}
@@ -152,7 +155,10 @@ func vectorSearch(ctx context.Context, question string) ([]searchResult, error) 
 func questionResponse(ctx context.Context, question string, results []searchResult) error {
 
 	// Open a connection with ollama to access the model.
-	llm, err := ollama.New(ollama.WithModel("llama3.2"))
+	llm, err := ollama.New(
+		ollama.WithModel("llama3.2"),
+		ollama.WithServerURL("http://localhost:11434"),
+	)
 	if err != nil {
 		return fmt.Errorf("ollama: %w", err)
 	}

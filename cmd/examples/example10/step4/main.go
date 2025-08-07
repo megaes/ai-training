@@ -21,6 +21,7 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -34,7 +35,7 @@ import (
 const (
 	url           = "http://localhost:11434/v1/chat/completions"
 	model         = "gpt-oss:latest"
-	contextWindow = 168 * 1024 // 168KB
+	contextWindow = 168 * 1024 // 168K tokens
 )
 
 func main() {
@@ -477,6 +478,10 @@ func (lf ListFiles) ToolDocument() client.D {
 						"type":        "string",
 						"description": "Relative path to list files from. Defaults to current directory if not provided.",
 					},
+					"extension": client.D{
+						"type":        "string",
+						"description": "The file extension to filter by. If not provided, will list all files. If provided, will only list files with the given extension.",
+					},
 				},
 				"required": []string{"path"},
 			},
@@ -491,8 +496,11 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) client.D
 	}
 
 	var files []string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(dir, func(path string, info fs.DirEntry, err error) error {
 		if err != nil {
+			if errors.Is(err, filepath.SkipDir) {
+				return nil
+			}
 			return err
 		}
 
@@ -504,16 +512,28 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) client.D
 		if strings.Contains(relPath, "zarf") ||
 			strings.Contains(relPath, "vendor") ||
 			strings.Contains(relPath, ".venv") ||
+			strings.Contains(relPath, ".idea") ||
+			strings.Contains(relPath, ".vscode") ||
 			strings.Contains(relPath, ".git") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
-		if relPath != "." {
-			if info.IsDir() {
-				files = append(files, relPath+"/")
-			} else {
-				files = append(files, relPath)
+		if relPath == "." {
+			return nil
+		}
+
+		if info.IsDir() {
+			files = append(files, relPath+"/")
+		} else {
+			if arguments["extension"] != "" {
+				if !strings.HasSuffix(relPath, arguments["extension"].(string)) {
+					return nil
+				}
 			}
+			files = append(files, relPath)
 		}
 		return nil
 	})

@@ -56,7 +56,10 @@ func run() error {
 
 	fmt.Println("Generating image description...")
 
-	llm, err := ollama.New(ollama.WithModel("llama3.2-vision"))
+	llm, err := ollama.New(
+		ollama.WithModel("llama3.2-vision"),
+		ollama.WithServerURL("http://localhost:11434"),
+	)
 	if err != nil {
 		return fmt.Errorf("ollama: %w", err)
 	}

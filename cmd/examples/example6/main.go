@@ -84,7 +84,10 @@ func createEmbeddings() error {
 	}
 
 	// Open a connection with ollama to access the model.
-	llm, err := ollama.New(ollama.WithModel("mxbai-embed-large"))
+	llm, err := ollama.New(
+		ollama.WithModel("mxbai-embed-large"),
+		ollama.WithServerURL("http://localhost:11434"),
+	)
 	if err != nil {
 		return fmt.Errorf("ollama: %w", err)
 	}

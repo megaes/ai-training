@@ -19,11 +19,17 @@
 //
 //  Fields are not hand crafted like in this example. Here, we hand coded
 //  the features and the values. To do this at scale, this needs to be
-//  automated. This is done during neural network training and you won't
+//  automated. This is done during neural network training, and you won't
 //  know what the features are. But it all works.
 //
 //  The position of a data point in the learned vector space is referred to as
 //  its embedding.
+//
+//  Why cosine similarity and not Euclidean distance?
+//  Euclidean cares about magnitude, but we often care about the direction (relative feature ratios).
+//  Cosine similarity measures the angle between two vectors. It is invariant to scaling,
+//  which is handy when features are binary or have different scales.
+//
 
 package main
 
@@ -102,7 +108,7 @@ func main() {
 	kingSubManPlusWoman := vector.Add(kingSubMan, dataPoints[2].Vector())
 	queen := dataPoints[4].Vector()
 
-	// Now compare a (king - Man + Woman) to a Queen.
+	// Now compare a (King - Man + Woman) to a Queen.
 	result := vector.CosineSimilarity(kingSubManPlusWoman, queen)
 	fmt.Printf("King - Man + Woman ~= Queen similarity: %.3f%%\n", result*100)
 }

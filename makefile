@@ -75,7 +75,7 @@ install:
 
 docker:
 	docker pull mongodb/mongodb-atlas-local
-	docker pull dyrnq/open-webui:latest
+	docker pull ghcr.io/open-webui/open-webui:v0.6.18
 	docker pull postgres:17.5
 
 ollama-pull:
