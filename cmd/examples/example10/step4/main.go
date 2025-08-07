@@ -525,9 +525,11 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) client.D
 			return nil
 		}
 
-		if info.IsDir() {
+		switch {
+		case info.IsDir():
 			files = append(files, relPath+"/")
-		} else {
+
+		default:
 			if arguments["extension"] != "" {
 				if !strings.HasSuffix(relPath, arguments["extension"].(string)) {
 					return nil
@@ -535,6 +537,7 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) client.D
 			}
 			files = append(files, relPath)
 		}
+
 		return nil
 	})
 
