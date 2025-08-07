@@ -197,7 +197,7 @@ curl-tooling:
 	curl http://localhost:11434/v1/chat/completions \
 	-H "Content-Type: application/json" \
 	-d '{ \
-	"model": "qwen3:8b", \
+	"model": "gpt-oss:latest", \
 	"messages": [ \
 		{ \
 			"role": "user", \
@@ -232,7 +232,7 @@ curl-tooling-stream:
 	curl http://localhost:11434/v1/chat/completions \
 	-H "Content-Type: application/json" \
 	-d '{ \
-	"model": "qwen3:8b", \
+	"model": "gpt-oss:latest", \
 	"messages": [ \
 		{ \
 			"role": "user", \
@@ -240,4 +240,12 @@ curl-tooling-stream:
 		} \
 	], \
 	"stream": true \
+	}'
+
+curl-tokenize:
+	curl http://localhost:11434/v1/tokenize \
+	-H "Content-Type: application/json" \
+	-d '{ \
+	"model": "gpt-oss:latest", \
+	"text": "How are you?" \
 	}'

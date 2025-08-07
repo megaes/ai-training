@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
+	"github.com/ardanlabs/ai-training/foundation/tiktoken"
 )
 
 const (
@@ -63,7 +64,10 @@ func run() error {
 
 	cln := client.NewSSE[client.Chat](logger)
 
-	agent := NewAgent(cln, getUserMessage)
+	agent, err := NewAgent(cln, getUserMessage)
+	if err != nil {
+		return fmt.Errorf("failed to create agent: %w", err)
+	}
 
 	return agent.Run(context.TODO())
 }
@@ -83,9 +87,10 @@ type Agent struct {
 	getUserMessage func() (string, bool)
 	tools          map[string]Tool
 	toolDocuments  []client.D
+	tke            *tiktoken.Tiktoken
 }
 
-func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (string, bool)) *Agent {
+func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (string, bool)) (*Agent, error) {
 	rf := NewReadFile()
 	lf := NewListFiles()
 	cf := NewCreateFile()
@@ -103,12 +108,20 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 		toolDocs = append(toolDocs, tool.ToolDocument())
 	}
 
-	return &Agent{
+	tke, err := tiktoken.NewTiktoken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tiktoken: %w", err)
+	}
+
+	a := Agent{
 		client:         sseClient,
 		getUserMessage: getUserMessage,
 		tools:          tools,
 		toolDocuments:  toolDocs,
+		tke:            tke,
 	}
+
+	return &a, nil
 }
 
 var systemPrompt = `You are a helpful coding assistant that has tools to assist
@@ -128,6 +141,7 @@ Reasoning: high
 
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D
+	var reasoning []string
 	var inToolCall bool
 	var lastToolCall []client.ToolCall
 
@@ -177,6 +191,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		var chunks []string
 
 		thinking := true
+		reasoning = nil
 		fmt.Print("\u001b[91m\n\n<reasoning>\n\u001b[0m")
 
 		for resp := range ch {
@@ -189,14 +204,14 @@ func (a *Agent) Run(ctx context.Context) error {
 
 				result := compareToolCalls(lastToolCall, resp.Choices[0].Delta.ToolCalls)
 				if len(result) > 0 {
-					conversation = append(conversation, result)
+					conversation = a.addToConversation(reasoning, conversation, result)
 					inToolCall = true
 					continue
 				}
 
 				results := a.callTools(ctx, resp.Choices[0].Delta.ToolCalls)
 				if len(results) > 0 {
-					conversation = append(conversation, results...)
+					conversation = a.addToConversation(reasoning, conversation, results...)
 					inToolCall = true
 					lastToolCall = resp.Choices[0].Delta.ToolCalls
 				}
@@ -212,6 +227,7 @@ func (a *Agent) Run(ctx context.Context) error {
 				lastToolCall = nil
 
 			case resp.Choices[0].Delta.Reasoning != "":
+				reasoning = append(reasoning, resp.Choices[0].Delta.Reasoning)
 				fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
 			}
 		}
@@ -223,7 +239,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			content = strings.TrimLeft(content, "\n")
 
 			if content != "" {
-				conversation = append(conversation, client.D{
+				conversation = a.addToConversation(reasoning, conversation, client.D{
 					"role":    "assistant",
 					"content": content,
 				})
@@ -232,27 +248,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func compareToolCalls(last []client.ToolCall, current []client.ToolCall) client.D {
-	if len(last) != len(current) {
-		return client.D{}
-	}
-
-	for i := range last {
-		if last[i].Function.Name != current[i].Function.Name {
-			return client.D{}
-		}
-
-		if fmt.Sprintf("%v", last[i].Function.Arguments) != fmt.Sprintf("%v", current[i].Function.Arguments) {
-			return client.D{}
-		}
-	}
-
-	fmt.Printf("\u001b[92mtool\u001b[0m: %s(%v)\n", current[0].Function.Name, current[0].Function.Arguments)
-	fmt.Printf("\u001b[92mtool\u001b[0m: %s\n", "Same tool call")
-
-	return toolErrorResponse(current[0].Function.Name, errors.New("data already provided in a previous response, please review the conversation history"))
 }
 
 func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []client.D {
@@ -275,7 +270,59 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []cl
 	return resps
 }
 
+func (a *Agent) addToConversation(reasoning []string, conversation []client.D, d ...client.D) []client.D {
+	conversation = append(conversation, d...)
+
+	var sysTokens int
+	var inputTokens int
+	var outputTokens int
+
+	for _, c := range conversation {
+		switch c["role"].(string) {
+		case "system":
+			sysTokens += a.tke.TokenCount(c["content"].(string))
+
+		case "user", "tool":
+			inputTokens += a.tke.TokenCount(c["content"].(string))
+
+		case "assistant":
+			outputTokens += a.tke.TokenCount(c["content"].(string))
+		}
+	}
+
+	r := strings.Join(reasoning, "")
+	reasonTokens := a.tke.TokenCount(r)
+
+	totalTokens := sysTokens + inputTokens + outputTokens + reasonTokens
+	percentage := (float64(totalTokens) / float64(contextWindow)) * 100
+
+	fmt.Printf("\n\u001b[90mTokens Sys[%d] Inp[%d] Out[%d] Rea[%d] Tot[%d] (%.0f%% of 168K)\u001b[0m\n", sysTokens, inputTokens, outputTokens, reasonTokens, totalTokens, percentage)
+
+	return conversation
+}
+
 // =============================================================================
+
+func compareToolCalls(last []client.ToolCall, current []client.ToolCall) client.D {
+	if len(last) != len(current) {
+		return client.D{}
+	}
+
+	for i := range last {
+		if last[i].Function.Name != current[i].Function.Name {
+			return client.D{}
+		}
+
+		if fmt.Sprintf("%v", last[i].Function.Arguments) != fmt.Sprintf("%v", current[i].Function.Arguments) {
+			return client.D{}
+		}
+	}
+
+	fmt.Printf("\u001b[92mtool\u001b[0m: %s(%v)\n", current[0].Function.Name, current[0].Function.Arguments)
+	fmt.Printf("\u001b[92mtool\u001b[0m: %s\n", "Same tool call")
+
+	return toolErrorResponse(current[0].Function.Name, errors.New("data already provided in a previous response, please review the conversation history"))
+}
 
 func toolSuccessResponse(toolName string, values ...any) client.D {
 	data := make(map[string]any)
