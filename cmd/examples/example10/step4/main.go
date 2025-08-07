@@ -46,6 +46,10 @@ func main() {
 }
 
 func run() error {
+	// -------------------------------------------------------------------------
+	// Declare a function that can accept user input which the agent will use
+	// when it's the users turn.
+
 	scanner := bufio.NewScanner(os.Stdin)
 	getUserMessage := func() (string, bool) {
 		if !scanner.Scan() {
@@ -53,6 +57,10 @@ func run() error {
 		}
 		return scanner.Text(), true
 	}
+
+	// -------------------------------------------------------------------------
+	// Construct the logger, client to talk to the model, and the agent. Then
+	// start the agent.
 
 	logger := func(ctx context.Context, msg string, v ...any) {
 		s := fmt.Sprintf("msg: %s", msg)
@@ -91,6 +99,9 @@ type Agent struct {
 }
 
 func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (string, bool)) (*Agent, error) {
+	// -------------------------------------------------------------------------
+	// Construct the tools and initialize all the tool support.
+
 	rf := NewReadFile()
 	lf := NewListFiles()
 	cf := NewCreateFile()
@@ -108,10 +119,16 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 		toolDocs = append(toolDocs, tool.ToolDocument())
 	}
 
+	// -------------------------------------------------------------------------
+	// Construct the tokenizer.
+
 	tke, err := tiktoken.NewTiktoken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tiktoken: %w", err)
 	}
+
+	// -------------------------------------------------------------------------
+	// Construct the agent.
 
 	a := Agent{
 		client:         sseClient,
@@ -124,6 +141,7 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 	return &a, nil
 }
 
+// The system prompt for the model so it behaves as expected.
 var systemPrompt = `You are a helpful coding assistant that has tools to assist
 you in coding.
 
@@ -140,10 +158,10 @@ Reasoning: high
 `
 
 func (a *Agent) Run(ctx context.Context) error {
-	var conversation []client.D
-	var reasoning []string
-	var inToolCall bool
-	var lastToolCall []client.ToolCall
+	var conversation []client.D        // History of the conversation
+	var reasonContent []string         // Reasoning content per model call
+	var inToolCall bool                // Need to know we are inside a tool call request
+	var lastToolCall []client.ToolCall // Last tool call to identify call dups
 
 	conversation = append(conversation, client.D{
 		"role":    "system",
@@ -153,6 +171,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	fmt.Printf("Chat with %s (use 'ctrl-c' to quit)\n", model)
 
 	for {
+		// ---------------------------------------------------------------------
+		// If we are not in a tool call then we can ask the user
+		// to provide their next question or request.
+
 		if !inToolCall {
 			fmt.Print("\u001b[94m\nYou\u001b[0m: ")
 			userInput, ok := a.getUserMessage()
@@ -167,6 +189,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 
 		inToolCall = false
+
+		// ---------------------------------------------------------------------
+		// Now we will make a call to the model, we could be responding to a
+		// tool call or providing a user request.
 
 		d := client.D{
 			"model":          model,
@@ -188,49 +214,90 @@ func (a *Agent) Run(ctx context.Context) error {
 			return fmt.Errorf("do: %w", err)
 		}
 
-		var chunks []string
+		// ---------------------------------------------------------------------
+		// Now we will make a call to the model
 
-		thinking := true
-		reasoning = nil
-		fmt.Print("\u001b[91m\n\n<reasoning>\n\u001b[0m")
+		var chunks []string      // Store the content chunks since we are streaming
+		reasonThinking := false  // GPT models provide a Reasoning field
+		contentThinking := false // Other reasoning model use <think> tags
+		reasonContent = nil      // Reset the reasoning content for this next call
+
+		fmt.Print("\n")
+
+		// ---------------------------------------------------------------------
+		// Process the response which comes in as chunks. So we need to process
+		// and save each chunk.
 
 		for resp := range ch {
+			// -----------------------------------------------------------------
+			// Did the model ask us to execute a tool call?
 			switch {
 			case len(resp.Choices[0].Delta.ToolCalls) > 0:
-				if thinking {
-					thinking = false
-					fmt.Print("\u001b[91m\n</reasoning>\n\n\u001b[0m")
-				}
+				fmt.Print("\n\n")
 
 				result := compareToolCalls(lastToolCall, resp.Choices[0].Delta.ToolCalls)
 				if len(result) > 0 {
-					conversation = a.addToConversation(reasoning, conversation, result)
+					conversation = a.addToConversation(reasonContent, conversation, result)
 					inToolCall = true
 					continue
 				}
 
 				results := a.callTools(ctx, resp.Choices[0].Delta.ToolCalls)
 				if len(results) > 0 {
-					conversation = a.addToConversation(reasoning, conversation, results...)
+					conversation = a.addToConversation(reasonContent, conversation, results...)
 					inToolCall = true
 					lastToolCall = resp.Choices[0].Delta.ToolCalls
 				}
 
+			// -----------------------------------------------------------------
+			// Did we get content? With some models a <think> tag could exist to
+			// indicate reasoning. We need to filter that out and display it as
+			// a different color.
 			case resp.Choices[0].Delta.Content != "":
-				if thinking {
-					thinking = false
-					fmt.Print("\u001b[91m\n</reasoning>\n\n\u001b[0m")
+				if reasonThinking {
+					reasonThinking = false
+					fmt.Print("\n\n")
 				}
 
-				fmt.Print(resp.Choices[0].Delta.Content)
-				chunks = append(chunks, resp.Choices[0].Delta.Content)
+				switch resp.Choices[0].Delta.Content {
+				case "<think>":
+					contentThinking = true
+					continue
+				case "</think>":
+					contentThinking = false
+					continue
+				}
+
+				switch {
+				case !contentThinking:
+					fmt.Print(resp.Choices[0].Delta.Content)
+					chunks = append(chunks, resp.Choices[0].Delta.Content)
+
+				case contentThinking:
+					reasonContent = append(reasonContent, resp.Choices[0].Delta.Content)
+					fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Content)
+				}
+
 				lastToolCall = nil
 
+			// -----------------------------------------------------------------
+			// Did we get reasoning content? ChatGPT models provide reasoning in
+			// the Delta.Reasoning field. Display it as a different color.
 			case resp.Choices[0].Delta.Reasoning != "":
-				reasoning = append(reasoning, resp.Choices[0].Delta.Reasoning)
+				reasonThinking = true
+
+				if len(reasonContent) == 0 {
+					fmt.Print("\n")
+				}
+
+				reasonContent = append(reasonContent, resp.Choices[0].Delta.Reasoning)
 				fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
 			}
 		}
+
+		// ---------------------------------------------------------------------
+		// We processed all the chunks from the response so we need to add
+		// this to the conversation history.
 
 		if !inToolCall && len(chunks) > 0 {
 			fmt.Print("\n")
@@ -239,7 +306,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			content = strings.TrimLeft(content, "\n")
 
 			if content != "" {
-				conversation = a.addToConversation(reasoning, conversation, client.D{
+				conversation = a.addToConversation(reasonContent, conversation, client.D{
 					"role":    "assistant",
 					"content": content,
 				})
@@ -250,6 +317,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	return nil
 }
 
+// Iterate over all the tool call requests and execute the tools. It's been
+// my experience we get a single call 100% of the time.
 func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []client.D {
 	var resps []client.D
 
@@ -270,6 +339,9 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []cl
 	return resps
 }
 
+// We need to calculate the different tokens used in the conversation and
+// display it to the user. We will use this as well to add history to the
+// conversation.
 func (a *Agent) addToConversation(reasoning []string, conversation []client.D, d ...client.D) []client.D {
 	conversation = append(conversation, d...)
 
@@ -303,6 +375,9 @@ func (a *Agent) addToConversation(reasoning []string, conversation []client.D, d
 
 // =============================================================================
 
+// We want to try and detect if the model is asking us to call the same tool
+// twice. This function is not accurate because the arguments are in a map. We
+// need to fix that.
 func compareToolCalls(last []client.ToolCall, current []client.ToolCall) client.D {
 	if len(last) != len(current) {
 		return client.D{}
@@ -324,6 +399,7 @@ func compareToolCalls(last []client.ToolCall, current []client.ToolCall) client.
 	return toolErrorResponse(current[0].Function.Name, errors.New("data already provided in a previous response, please review the conversation history"))
 }
 
+// toolSuccessResponse returns a successful structured tool response.
 func toolSuccessResponse(toolName string, values ...any) client.D {
 	data := make(map[string]any)
 	for i := 0; i < len(values); i = i + 2 {
@@ -354,6 +430,7 @@ func toolSuccessResponse(toolName string, values ...any) client.D {
 	}
 }
 
+// toolErrorResponse returns a failed structured tool response.
 func toolErrorResponse(toolName string, err error) client.D {
 	data := map[string]any{"error": err.Error()}
 
@@ -386,6 +463,7 @@ func toolErrorResponse(toolName string, err error) client.D {
 }
 
 // =============================================================================
+// ReadFile Tool
 
 type ReadFile struct {
 	name string
@@ -436,6 +514,7 @@ func (rf ReadFile) Call(ctx context.Context, arguments map[string]any) client.D 
 }
 
 // =============================================================================
+// ListFiles Tool
 
 type ListFiles struct {
 	name string
@@ -535,6 +614,7 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) client.D
 }
 
 // =============================================================================
+// CreateFile Tool
 
 type CreateFile struct {
 	name string
@@ -592,6 +672,7 @@ func (cf CreateFile) Call(ctx context.Context, arguments map[string]any) client.
 }
 
 // =============================================================================
+// GoCodeEditor Tool
 
 type GoCodeEditor struct {
 	name string
