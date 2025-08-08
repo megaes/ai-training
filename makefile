@@ -121,7 +121,7 @@ ollama-logs:
 	tail -f -n 100 ~/.ollama/logs/server.log
 
 ollama-list-models:
-	curl http://localhost:11434/api/tags
+	curl -s http://localhost:11434/api/tags | jq | grep '"model": "'
 
 # ==============================================================================
 # Run Tooling
