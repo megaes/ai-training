@@ -62,11 +62,13 @@ func run() error {
 
 // =============================================================================
 
+// Agent represents the chat agent that can use tools to perform tasks.
 type Agent struct {
 	client         *client.SSEClient[client.Chat]
 	getUserMessage func() (string, bool)
 }
 
+// NewAgent creates a new instance of Agent.
 func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (string, bool)) *Agent {
 	return &Agent{
 		client:         sseClient,
@@ -74,6 +76,7 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 	}
 }
 
+// Run starts the agent and runs the chat loop.
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D
 
@@ -115,22 +118,14 @@ func (a *Agent) Run(ctx context.Context) error {
 
 		var chunks []string
 
-		thinking := true
-		fmt.Print("\n<reasoning>\n")
-
 		for resp := range ch {
 			switch {
 			case resp.Choices[0].Delta.Content != "":
-				if thinking {
-					thinking = false
-					fmt.Print("\n</reasoning>\n\n")
-				}
-
 				fmt.Print(resp.Choices[0].Delta.Content)
 				chunks = append(chunks, resp.Choices[0].Delta.Content)
 
 			case resp.Choices[0].Delta.Reasoning != "":
-				fmt.Print(resp.Choices[0].Delta.Reasoning)
+				fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
 			}
 		}
 

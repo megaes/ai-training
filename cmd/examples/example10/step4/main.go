@@ -82,6 +82,7 @@ func run() error {
 
 // =============================================================================
 
+// Tool defines the interface that all tools must implement.
 type Tool interface {
 	Name() string
 	ToolDocument() client.D
@@ -90,6 +91,7 @@ type Tool interface {
 
 // =============================================================================
 
+// Agent represents the chat agent that can use tools to perform tasks.
 type Agent struct {
 	client         *client.SSEClient[client.Chat]
 	getUserMessage func() (string, bool)
@@ -98,7 +100,9 @@ type Agent struct {
 	tke            *tiktoken.Tiktoken
 }
 
+// NewAgent creates a new instance of Agent.
 func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (string, bool)) (*Agent, error) {
+
 	// -------------------------------------------------------------------------
 	// Construct the tools and initialize all the tool support.
 
@@ -157,6 +161,7 @@ the source code file.
 Reasoning: high
 `
 
+// Run starts the agent and runs the chat loop.
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D        // History of the conversation
 	var reasonContent []string         // Reasoning content per model call
@@ -217,7 +222,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		// ---------------------------------------------------------------------
 		// Now we will make a call to the model
 
-		var chunks []string      // Store the content chunks since we are streaming
+		var chunks []string      // Store the response chunks since we are streaming
 		reasonThinking := false  // GPT models provide a Reasoning field
 		contentThinking := false // Other reasoning model use <think> tags
 		reasonContent = nil      // Reset the reasoning content for this next call
@@ -229,9 +234,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		// and save each chunk.
 
 		for resp := range ch {
-			// -----------------------------------------------------------------
-			// Did the model ask us to execute a tool call?
 			switch {
+
+			// Did the model ask us to execute a tool call?
 			case len(resp.Choices[0].Delta.ToolCalls) > 0:
 				fmt.Print("\n\n")
 
@@ -249,7 +254,6 @@ func (a *Agent) Run(ctx context.Context) error {
 					lastToolCall = resp.Choices[0].Delta.ToolCalls
 				}
 
-			// -----------------------------------------------------------------
 			// Did we get content? With some models a <think> tag could exist to
 			// indicate reasoning. We need to filter that out and display it as
 			// a different color.
@@ -280,7 +284,6 @@ func (a *Agent) Run(ctx context.Context) error {
 
 				lastToolCall = nil
 
-			// -----------------------------------------------------------------
 			// Did we get reasoning content? ChatGPT models provide reasoning in
 			// the Delta.Reasoning field. Display it as a different color.
 			case resp.Choices[0].Delta.Reasoning != "":
@@ -317,8 +320,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	return nil
 }
 
-// Iterate over all the tool call requests and execute the tools. It's been
-// my experience we get a single call 100% of the time.
+// callTools will lookup a requested tool by name and call it.
 func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []client.D {
 	var resps []client.D
 
@@ -339,11 +341,11 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []cl
 	return resps
 }
 
-// We need to calculate the different tokens used in the conversation and
-// display it to the user. We will use this as well to add history to the
-// conversation.
-func (a *Agent) addToConversation(reasoning []string, conversation []client.D, d ...client.D) []client.D {
-	conversation = append(conversation, d...)
+// addToConversation will add new messages to the conversation history and
+// calculate the different tokens used in the conversation and display it to the
+// user. We will use this as well to add history to the conversation.
+func (a *Agent) addToConversation(reasoning []string, conversation []client.D, newMessages ...client.D) []client.D {
+	conversation = append(conversation, newMessages...)
 
 	var sysTokens int
 	var inputTokens int
@@ -375,9 +377,9 @@ func (a *Agent) addToConversation(reasoning []string, conversation []client.D, d
 
 // =============================================================================
 
-// We want to try and detect if the model is asking us to call the same tool
-// twice. This function is not accurate because the arguments are in a map. We
-// need to fix that.
+// compareToolCalls will try and detect if the model is asking us to call the
+// same tool twice. This function is not accurate because the arguments are in a
+// map. We need to fix that.
 func compareToolCalls(last []client.ToolCall, current []client.ToolCall) client.D {
 	if len(last) != len(current) {
 		return client.D{}
@@ -465,21 +467,25 @@ func toolErrorResponse(toolName string, err error) client.D {
 // =============================================================================
 // ReadFile Tool
 
+// ReadFile represents a tool that can be used to read the contents of a file.
 type ReadFile struct {
 	name string
 }
 
-func NewReadFile() ReadFile {
-	return ReadFile{
+// NewReadFile creates a new instance of ReadFile.
+func NewReadFile() *ReadFile {
+	return &ReadFile{
 		name: "read_file",
 	}
 }
 
-func (rf ReadFile) Name() string {
+// Name returns the name of the tool.
+func (rf *ReadFile) Name() string {
 	return rf.name
 }
 
-func (rf ReadFile) ToolDocument() client.D {
+// ToolDocument defines the metadata for the tool that is provied to the model.
+func (rf *ReadFile) ToolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
@@ -499,7 +505,15 @@ func (rf ReadFile) ToolDocument() client.D {
 	}
 }
 
-func (rf ReadFile) Call(ctx context.Context, arguments map[string]any) client.D {
+// Call is the function that is called by the agent to read the contents of a
+// file when the model requests the tool with the specified parameters.
+func (rf *ReadFile) Call(ctx context.Context, arguments map[string]any) (resp client.D) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = toolErrorResponse(rf.name, fmt.Errorf("%s", r))
+		}
+	}()
+
 	dir := "."
 	if arguments["path"] != "" {
 		dir = arguments["path"].(string)
@@ -516,21 +530,25 @@ func (rf ReadFile) Call(ctx context.Context, arguments map[string]any) client.D 
 // =============================================================================
 // ListFiles Tool
 
+// ListFiles represents a tool that can be used to list files.
 type ListFiles struct {
 	name string
 }
 
-func NewListFiles() ListFiles {
-	return ListFiles{
+// NewListFiles creates a new instance of ListFiles.
+func NewListFiles() *ListFiles {
+	return &ListFiles{
 		name: "list_files",
 	}
 }
 
-func (lf ListFiles) Name() string {
+// Name returns the name of the tool.
+func (lf *ListFiles) Name() string {
 	return lf.name
 }
 
-func (lf ListFiles) ToolDocument() client.D {
+// ToolDocument defines the metadata for the tool that is provied to the model.
+func (lf *ListFiles) ToolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
@@ -554,7 +572,15 @@ func (lf ListFiles) ToolDocument() client.D {
 	}
 }
 
-func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) client.D {
+// Call is the function that is called by the agent to list files when the model
+// requests the tool with the specified parameters.
+func (lf *ListFiles) Call(ctx context.Context, arguments map[string]any) (resp client.D) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = toolErrorResponse(lf.name, fmt.Errorf("%s", r))
+		}
+	}()
+
 	dir := "."
 	if arguments["path"] != "" {
 		dir = arguments["path"].(string)
@@ -579,6 +605,7 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) client.D
 			strings.Contains(relPath, ".venv") ||
 			strings.Contains(relPath, ".idea") ||
 			strings.Contains(relPath, ".vscode") ||
+			strings.Contains(relPath, "libw2v") ||
 			strings.Contains(relPath, ".git") {
 			if info.IsDir() {
 				return filepath.SkipDir
@@ -616,21 +643,25 @@ func (lf ListFiles) Call(ctx context.Context, arguments map[string]any) client.D
 // =============================================================================
 // CreateFile Tool
 
+// CreateFile represents a tool that can be used to create files.
 type CreateFile struct {
 	name string
 }
 
-func NewCreateFile() CreateFile {
-	return CreateFile{
+// NewCreateFile creates a new instance of CreateFile.
+func NewCreateFile() *CreateFile {
+	return &CreateFile{
 		name: "create_file",
 	}
 }
 
-func (cf CreateFile) Name() string {
+// Name returns the name of the tool.
+func (cf *CreateFile) Name() string {
 	return cf.name
 }
 
-func (cf CreateFile) ToolDocument() client.D {
+// ToolDocument defines the metadata for the tool that is provied to the model.
+func (cf *CreateFile) ToolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
@@ -650,7 +681,15 @@ func (cf CreateFile) ToolDocument() client.D {
 	}
 }
 
-func (cf CreateFile) Call(ctx context.Context, arguments map[string]any) client.D {
+// Call is the function that is called by the agent to create a file when the model
+// requests the tool with the specified parameters.
+func (cf *CreateFile) Call(ctx context.Context, arguments map[string]any) (resp client.D) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = toolErrorResponse(cf.name, fmt.Errorf("%s", r))
+		}
+	}()
+
 	filePath := arguments["path"].(string)
 
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
@@ -674,21 +713,25 @@ func (cf CreateFile) Call(ctx context.Context, arguments map[string]any) client.
 // =============================================================================
 // GoCodeEditor Tool
 
+// GoCodeEditor represents a tool that can be used to edit Go source code files.
 type GoCodeEditor struct {
 	name string
 }
 
-func NewGoCodeEditor() GoCodeEditor {
-	return GoCodeEditor{
+// NewGoCodeEditor creates a new instance of GoCodeEditor.
+func NewGoCodeEditor() *GoCodeEditor {
+	return &GoCodeEditor{
 		name: "golang_code_editor",
 	}
 }
 
-func (gce GoCodeEditor) Name() string {
+// Name returns the name of the tool.
+func (gce *GoCodeEditor) Name() string {
 	return gce.name
 }
 
-func (gce GoCodeEditor) ToolDocument() client.D {
+// ToolDocument defines the metadata for the tool that is provied to the model.
+func (gce *GoCodeEditor) ToolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
@@ -720,7 +763,15 @@ func (gce GoCodeEditor) ToolDocument() client.D {
 	}
 }
 
-func (gce GoCodeEditor) Call(ctx context.Context, arguments map[string]any) client.D {
+// Call is the function that is called by the agent to edit a file when the model
+// requests the tool with the specified parameters.
+func (gce *GoCodeEditor) Call(ctx context.Context, arguments map[string]any) (resp client.D) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = toolErrorResponse(gce.name, fmt.Errorf("%s", r))
+		}
+	}()
+
 	path := arguments["path"].(string)
 	lineNumber := int(arguments["line_number"].(float64))
 	typeChange := strings.TrimSpace(arguments["type_change"].(string))

@@ -91,34 +91,20 @@ func weatherQuestion(ctx context.Context) error {
 	// The model will respond asking us to make the get_current_weather function
 	// call. We will make the call and then send the response back to the model.
 
-	thinking := true
-	fmt.Print("\n<reasoning>\n")
+	fmt.Print("\n")
 
 	for resp := range ch {
 		switch {
 		case len(resp.Choices[0].Delta.ToolCalls) > 0:
-			if thinking {
-				thinking = false
-				fmt.Print("\n</reasoning>\n\n")
-			}
-
-			fmt.Printf("Model Asking For Tool Call:\n\n%s(%s)\n\n", resp.Choices[0].Delta.ToolCalls[0].Function.Name, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
+			fmt.Printf("\n\nModel Asking For Tool Call:\n\n%s(%s)\n\n", resp.Choices[0].Delta.ToolCalls[0].Function.Name, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
 
 			resp := getWeather.Call(ctx, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
 			conversation = append(conversation, resp)
 
 			fmt.Printf("Tool Call Result:\n\n%s\n\n", resp)
 
-		case resp.Choices[0].Delta.Content != "":
-			if thinking {
-				thinking = false
-				fmt.Print("\n</reasoning>\n\n")
-			}
-
-			fmt.Print(resp.Choices[0].Delta.Content)
-
 		case resp.Choices[0].Delta.Reasoning != "":
-			fmt.Print(resp.Choices[0].Delta.Reasoning)
+			fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
 		}
 	}
 
@@ -148,31 +134,15 @@ func weatherQuestion(ctx context.Context) error {
 	// -------------------------------------------------------------------------
 	// The model should provide the answer based on the tool call
 
-	fmt.Print("Final Result:\n")
-
-	thinking = true
-	fmt.Print("\n<reasoning>\n")
+	fmt.Print("Final Result:\n\n")
 
 	for resp := range ch {
 		switch {
-		case len(resp.Choices[0].Delta.ToolCalls) > 0:
-			if thinking {
-				thinking = false
-				fmt.Print("\n</reasoning>\n\n")
-			}
-
-			fmt.Printf("Model Asking For Tool Call:\n\n%s(%s)\n\n", resp.Choices[0].Delta.ToolCalls[0].Function.Name, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
-
 		case resp.Choices[0].Delta.Content != "":
-			if thinking {
-				thinking = false
-				fmt.Print("\n</reasoning>\n\n")
-			}
-
 			fmt.Print(resp.Choices[0].Delta.Content)
 
 		case resp.Choices[0].Delta.Reasoning != "":
-			fmt.Print(resp.Choices[0].Delta.Reasoning)
+			fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
 		}
 	}
 
@@ -181,25 +151,24 @@ func weatherQuestion(ctx context.Context) error {
 
 // =============================================================================
 
+// GetWeather represents a tool that can be used to get the current weather.
 type GetWeather struct {
 	name string
 }
 
-func NewGetWeather() GetWeather {
-	return GetWeather{
+// NewGetWeather creates a new instance of GetWeather.
+func NewGetWeather() *GetWeather {
+	return &GetWeather{
 		name: "get_current_weather",
 	}
 }
 
-func (gw GetWeather) Name() string {
-	return gw.name
-}
-
-func (gw GetWeather) ToolDocument() client.D {
+// ToolDocument defines the metadata for the tool that is provied to the model.
+func (gw *GetWeather) ToolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
-			"name":        gw.Name(),
+			"name":        gw.name,
 			"description": "Get the current weather for a location",
 			"parameters": client.D{
 				"type": "object",
@@ -215,12 +184,30 @@ func (gw GetWeather) ToolDocument() client.D {
 	}
 }
 
-func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) client.D {
+// Call is the function that is called by the agent to get the weather when the
+// model requests the tool with the specified parameters.
+func (gw *GetWeather) Call(ctx context.Context, arguments map[string]any) (resp client.D) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = client.D{
+				"role":    "tool",
+				"name":    gw.name,
+				"content": fmt.Sprintf(`{"status": "FAILED", "data": "%s"}`, r),
+			}
+		}
+	}()
+
+	// We are going to hardcode a result for now so we can test the tool.
+	// We are going to return the current weather as structured data using JSON
+	// which is easier for the model to interpret.
+
+	location := arguments["location"].(string)
+
 	data := map[string]any{
 		"temperature": 28,
 		"humidity":    80,
 		"wind_speed":  10,
-		"description": "hot and humid",
+		"description": fmt.Sprintln("The weather in", location, "is hot and humid"),
 	}
 
 	info := struct {
@@ -231,18 +218,18 @@ func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) client.
 		Data:   data,
 	}
 
-	resp, err := json.Marshal(info)
+	d, err := json.Marshal(info)
 	if err != nil {
 		return client.D{
 			"role":    "tool",
 			"name":    gw.name,
-			"content": err.Error(),
+			"content": fmt.Sprintf(`{"status": "FAILED", "data": "%s"}`, err),
 		}
 	}
 
 	return client.D{
 		"role":    "tool",
 		"name":    gw.name,
-		"content": string(resp),
+		"content": string(d),
 	}
 }

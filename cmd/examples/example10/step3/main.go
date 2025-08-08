@@ -64,6 +64,7 @@ func run() error {
 
 // DEFINE A TOOL INTERFACE TO DEFINE WHAT A TOOL NEEDS TO PROVIDE.
 
+// Tool defines the interface that all tools must implement.
 type Tool interface {
 	Name() string
 	ToolDocument() client.D
@@ -74,16 +75,21 @@ type Tool interface {
 
 // WE NEED TO ADD TOOL SUPPORT TO THE AGENT AND ADD TWO NEW FIELDS.
 
+// Agent represents the chat agent that can use tools to perform tasks.
 type Agent struct {
 	client         *client.SSEClient[client.Chat]
 	getUserMessage func() (string, bool)
-	tools          map[string]Tool
-	toolDocuments  []client.D
+
+	// ADDING TOOL SUPPORT TO THE AGENT.
+	tools         map[string]Tool
+	toolDocuments []client.D
 }
 
+// NewAgent creates a new instance of Agent.
 func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (string, bool)) *Agent {
 
-	// PRE-CONSTRUCT ALL THE TOOLING.
+	// PRE-CONSTRUCT ALL THE TOOLS AND TOOL DOCUMENTS.
+
 	gw := NewGetWeather()
 	tools := map[string]Tool{
 		gw.Name(): gw,
@@ -94,6 +100,8 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 		toolDocs = append(toolDocs, tool.ToolDocument())
 	}
 
+	// ADD TOOL SUPPORT TO THE AGENT.
+
 	return &Agent{
 		client:         sseClient,
 		getUserMessage: getUserMessage,
@@ -102,6 +110,7 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 	}
 }
 
+// Run starts the agent and runs the chat loop.
 func (a *Agent) Run(ctx context.Context) error {
 	var conversation []client.D
 	var inToolCall bool
@@ -147,31 +156,22 @@ func (a *Agent) Run(ctx context.Context) error {
 			return fmt.Errorf("do: %w", err)
 		}
 
+		// WE NEED TO KEEP THE MODEL RESPONSE CHUNKS FOR CONVERSATION HISTORY.
 		var chunks []string
-
-		thinking := true
-		fmt.Print("\u001b[91m\n\n<reasoning>\n\u001b[0m")
 
 		for resp := range ch {
 			switch {
 			case len(resp.Choices[0].Delta.ToolCalls) > 0:
-				if thinking {
-					thinking = false
-					fmt.Print("\u001b[91m\n</reasoning>\n\n\u001b[0m")
-				}
-
 				results := a.callTools(ctx, resp.Choices[0].Delta.ToolCalls)
+
+				// NOW WE NEED TO CHECK IF THE TOOL CALLS PROVIDED ANY RESULTS
+				// TO ADD TO THE CONVERSATION AND MARK WE ARE IN A TOOL CALL.
 				if len(results) > 0 {
 					conversation = append(conversation, results...)
 					inToolCall = true
 				}
 
 			case resp.Choices[0].Delta.Content != "":
-				if thinking {
-					thinking = false
-					fmt.Print("\u001b[91m\n</reasoning>\n\n\u001b[0m")
-				}
-
 				fmt.Print(resp.Choices[0].Delta.Content)
 				chunks = append(chunks, resp.Choices[0].Delta.Content)
 
@@ -179,6 +179,10 @@ func (a *Agent) Run(ctx context.Context) error {
 				fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
 			}
 		}
+
+		// WE NEED TO ADD THE MODEL RESPONSE BACK INTO THE CONVERSATION. WE
+		// NEVER ADD THE REASONING BECAUSE IT'S EXTRA TOKENS AND IT WON'T ADD
+		// ANYTHING TO THE CONTEXT OF THE CONVERSATION.
 
 		if !inToolCall && len(chunks) > 0 {
 			fmt.Print("\n")
@@ -198,8 +202,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	return nil
 }
 
-// WE NEED A FUNCTION THAT CALLS THE TOOLS AND RETURNS THE RESPONSES.
+// WE NEED A FUNCTION THAT LOOKS UP THE REQUESTED TOOL BY NAME AND CALLS IT.
 
+// callTools will lookup a requested tool by name and call it.
 func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []client.D {
 	var resps []client.D
 
@@ -209,7 +214,7 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []cl
 			continue
 		}
 
-		fmt.Printf("\u001b[92mtool\u001b[0m: %s(%v)\n", tool.Name(), toolCall.Function.Arguments)
+		fmt.Printf("\n\n\u001b[92mtool\u001b[0m: %s(%v)\n", tool.Name(), toolCall.Function.Arguments)
 
 		resp := tool.Call(ctx, toolCall.Function.Arguments)
 		resps = append(resps, resp)
@@ -222,21 +227,25 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []cl
 
 // =============================================================================
 
+// GetWeather represents a tool that can be used to get the current weather.
 type GetWeather struct {
 	name string
 }
 
-func NewGetWeather() GetWeather {
-	return GetWeather{
+// NewGetWeather creates a new instance of GetWeather.
+func NewGetWeather() *GetWeather {
+	return &GetWeather{
 		name: "get_current_weather",
 	}
 }
 
-func (gw GetWeather) Name() string {
+// Name returns the name of the tool.
+func (gw *GetWeather) Name() string {
 	return gw.name
 }
 
-func (gw GetWeather) ToolDocument() client.D {
+// ToolDocument defines the metadata for the tool that is provied to the model.
+func (gw *GetWeather) ToolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
@@ -256,12 +265,31 @@ func (gw GetWeather) ToolDocument() client.D {
 	}
 }
 
-func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) client.D {
+// Call is the function that is called by the agent to get the weather when the
+// model requests the tool with the specified parameters.
+func (gw *GetWeather) Call(ctx context.Context, arguments map[string]any) (resp client.D) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = client.D{
+				"role":    "tool",
+				"name":    gw.name,
+				"status":  "FAILED",
+				"content": fmt.Sprintf(`{"status": "FAILED", "data": "%s"}`, r),
+			}
+		}
+	}()
+
+	// We are going to hardcode a result for now so we can test the tool.
+	// We are going to return the current weather as structured data using JSON
+	// which is easier for the model to interpret.
+
+	location := arguments["location"].(string)
+
 	data := map[string]any{
 		"temperature": 28,
 		"humidity":    80,
 		"wind_speed":  10,
-		"description": "hot and humid",
+		"description": fmt.Sprintln("The weather in", location, "is hot and humid"),
 	}
 
 	info := struct {
@@ -272,18 +300,18 @@ func (gw GetWeather) Call(ctx context.Context, arguments map[string]any) client.
 		Data:   data,
 	}
 
-	resp, err := json.Marshal(info)
+	d, err := json.Marshal(info)
 	if err != nil {
 		return client.D{
 			"role":    "tool",
 			"name":    gw.name,
-			"content": err.Error(),
+			"content": fmt.Sprintf(`{"status": "FAILED", "data": "%s"}`, err),
 		}
 	}
 
 	return client.D{
 		"role":    "tool",
 		"name":    gw.name,
-		"content": string(resp),
+		"content": string(d),
 	}
 }
