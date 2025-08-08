@@ -35,8 +35,9 @@ import (
 )
 
 type document struct {
-	ID        string    `bson:"id"`
-	Embedding []float32 `bson:"embedding"`
+	FileName    string    `bson:"file_name"`
+	Description string    `bson:"description"`
+	Embedding   []float32 `bson:"embedding"`
 }
 
 func main() {
@@ -53,7 +54,23 @@ func run() error {
 		return fmt.Errorf("read image: %w", err)
 	}
 
-	prompt := "Describe the image and be concise and accurate."
+	prompt := `Describe the image.
+Be concise and accurate.
+Do not be overly verbose or stylistic.
+Make sure all the elements in the image are enumerated and described.
+Do not include any additional details.
+Keep the description under 200 words.
+At the end of the description, create a list of tags with the names of all the elements in the image.
+Do no output anything past this list.
+Encode the list as valid JSON, as in this example:
+[
+  "tag1",
+  "tag2",
+  "tag3",
+  ...
+]
+Make sure the JSON is valid, doesn't have any extra spaces, and is properly formatted.
+`
 
 	var mimeType string
 	switch filepath.Ext(fileName) {
@@ -113,11 +130,7 @@ func run() error {
 		return fmt.Errorf("generate embeddings: %w", err)
 	}
 
-	fmt.Print("\n")
-	fmt.Println(vector[0])
-	fmt.Print("\n")
-
-	return updateDatabase(fileName, vector)
+	return updateDatabase(fileName, cr.Choices[0].Content, vector)
 }
 
 func readImage(fileName string) ([]byte, error) {
@@ -171,7 +184,7 @@ func updateImage(fileName string, description string) error {
 
 		err = cs.Write(f)
 		if err != nil {
-			return fmt.Errorf("wrtite: %w", err)
+			return fmt.Errorf("write: %w", err)
 		}
 		defer f.Close()
 
@@ -194,7 +207,7 @@ func updateImage(fileName string, description string) error {
 
 		err = cs.WriteTo(f)
 		if err != nil {
-			return fmt.Errorf("wrtite: %w", err)
+			return fmt.Errorf("write: %w", err)
 		}
 		defer f.Close()
 
@@ -219,12 +232,12 @@ func generateEmbeddings(description string) ([]float32, error) {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Received embeddings from model: %v\n", vectors)
+	fmt.Println("Received embeddings from model")
 
 	return vectors[0], nil
 }
 
-func updateDatabase(fileName string, vector []float32) error {
+func updateDatabase(fileName string, description string, vector []float32) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -288,14 +301,14 @@ func updateDatabase(fileName string, vector []float32) error {
 	// -------------------------------------------------------------------------
 	// Store some documents with their embeddings.
 
-	if err := storeDocuments(ctx, col, fileName, vector); err != nil {
+	if err := storeDocuments(ctx, col, fileName, description, vector); err != nil {
 		return fmt.Errorf("storeDocuments: %w", err)
 	}
 
 	return nil
 }
 
-func storeDocuments(ctx context.Context, col *mongo.Collection, fileName string, vector []float32) error {
+func storeDocuments(ctx context.Context, col *mongo.Collection, fileName string, description string, vector []float32) error {
 
 	// If these records already exist, we don't need to add them again.
 	findRes, err := col.Find(ctx, bson.D{})
@@ -313,16 +326,17 @@ func storeDocuments(ctx context.Context, col *mongo.Collection, fileName string,
 	// Let's add the document to the database.
 
 	d1 := document{
-		ID:        fileName,
-		Embedding: vector,
+		FileName:    fileName,
+		Description: description,
+		Embedding:   vector,
 	}
 
-	res, err := col.InsertMany(ctx, []any{d1})
+	res, err := col.InsertOne(ctx, d1)
 	if err != nil {
 		return fmt.Errorf("insert: %w", err)
 	}
 
-	fmt.Println(res.InsertedIDs)
+	fmt.Printf("Inserted db id: %s\n", res.InsertedID)
 
 	return nil
 }

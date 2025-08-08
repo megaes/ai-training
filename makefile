@@ -60,6 +60,9 @@ example9-step3:
 example9-step4:
 	go run cmd/examples/example09/step4/main.go
 
+example9-step5:
+	go run cmd/examples/example09/step5/main.go
+
 example10-step1:
 	go run cmd/examples/example10/step1/main.go
 
