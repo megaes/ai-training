@@ -94,9 +94,9 @@ type Tool interface {
 type Agent struct {
 	client         *client.SSEClient[client.Chat]
 	getUserMessage func() (string, bool)
+	tke            *tiktoken.Tiktoken
 	tools          map[string]Tool
 	toolDocuments  []client.D
-	tke            *tiktoken.Tiktoken
 }
 
 // NewAgent creates a new instance of Agent.
