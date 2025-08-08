@@ -92,7 +92,6 @@ docker:
 
 ollama-pull:
 	ollama pull mxbai-embed-large
-	ollama pull llama3.2
 	ollama pull llama3.2-vision
 	ollama pull gpt-oss:latest
 
