@@ -1,3 +1,14 @@
+// https://github.com/modelcontextprotocol/go-sdk
+// https://github.com/modelcontextprotocol/go-sdk/blob/main/design/design.md
+// https://github.com/orgs/modelcontextprotocol/discussions/364
+//
+// This example shows you create a basic client/server MCP interaction.
+//
+// # Running the example:
+//
+//	$ make example11-step1
+//
+// # This doesn't require you to run any additional services.
 package main
 
 import (
@@ -74,15 +85,15 @@ func client() error {
 		Arguments: map[string]any{"name": "you"},
 	}
 
-	fmt.Printf("Client: CALLING TOOL: %s(%v)\n", params.Name, params.Arguments)
+	fmt.Printf("Client: Calling Tool: %s(%v)\n", params.Name, params.Arguments)
 
 	res, err := session.CallTool(ctx, params)
 	if err != nil {
-		log.Fatalf("CallTool failed: %v", err)
+		log.Fatalf("Tool Call FAILED: %v", err)
 	}
 
 	if res.IsError {
-		log.Fatal("tool failed")
+		log.Fatalf("Tool Call FAILED: %v", res.Content)
 	}
 
 	fmt.Println("Client: Waiting for Response")
