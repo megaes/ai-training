@@ -27,7 +27,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
 	"github.com/ardanlabs/ai-training/foundation/tiktoken"
@@ -122,7 +124,7 @@ func NewAgent(sseClient *client.SSEClient[client.Chat], getUserMessage func() (s
 		tools:          tools,
 		toolDocuments: []client.D{
 			NewReadFile(tools),
-			NewListFiles(tools),
+			NewSearchFiles(tools),
 			NewCreateFile(tools),
 			NewGoCodeEditor(tools),
 		},
@@ -143,6 +145,8 @@ again for the current response.
 
 When reading Go source code always start counting lines of code from the top of
 the source code file.
+
+If you get back results from a tool call, do not verify the results.
 
 Reasoning: high
 `
@@ -201,8 +205,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		fmt.Printf("\u001b[93m\n%s\u001b[0m: ", model)
 
 		ch := make(chan client.Chat, 100)
+		ctx, cancelContext := context.WithTimeout(ctx, time.Minute*5)
+
 		if err := a.client.Do(ctx, http.MethodPost, url, d, ch); err != nil {
-			return fmt.Errorf("do: %w", err)
+			cancelContext()
+			fmt.Printf("\n\n\u001b[91mERROR:%s\u001b[0m\n\n", err)
+			inToolCall = false
+			lastToolCall = nil
+			continue
 		}
 
 		// ---------------------------------------------------------------------
@@ -283,6 +293,8 @@ func (a *Agent) Run(ctx context.Context) error {
 				fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
 			}
 		}
+
+		cancelContext()
 
 		// ---------------------------------------------------------------------
 		// We processed all the chunks from the response so we need to add
@@ -518,46 +530,50 @@ func (rf *ReadFile) Call(ctx context.Context, arguments map[string]any) (resp cl
 }
 
 // =============================================================================
-// ListFiles Tool
+// SearchFiles Tool
 
-// ListFiles represents a tool that can be used to list files.
-type ListFiles struct {
+// SearchFiles represents a tool that can be used to list files.
+type SearchFiles struct {
 	name string
 }
 
-// NewListFiles creates a new instance of the ListFiles tool and loads it
+// NewSearchFiles creates a new instance of the SearchFiles tool and loads it
 // into the provided tools map.
-func NewListFiles(tools map[string]Tool) client.D {
-	lf := ListFiles{
-		name: "list_files",
+func NewSearchFiles(tools map[string]Tool) client.D {
+	sf := SearchFiles{
+		name: "search_files",
 	}
-	tools[lf.name] = &lf
+	tools[sf.name] = &sf
 
-	return lf.toolDocument()
+	return sf.toolDocument()
 }
 
 // Name returns the name of the tool.
-func (lf *ListFiles) Name() string {
-	return lf.name
+func (sf *SearchFiles) Name() string {
+	return sf.name
 }
 
 // toolDocument defines the metadata for the tool that is provied to the model.
-func (lf *ListFiles) toolDocument() client.D {
+func (sf *SearchFiles) toolDocument() client.D {
 	return client.D{
 		"type": "function",
 		"function": client.D{
-			"name":        lf.name,
-			"description": "List files and directories at a given path. If no path is provided, lists files in the current directory.",
+			"name":        sf.name,
+			"description": "Search a directory at a given path for files that match a given file name or contain a given string. If no path is provided, search files will look in the current directory.",
 			"parameters": client.D{
 				"type": "object",
 				"properties": client.D{
 					"path": client.D{
 						"type":        "string",
-						"description": "Relative path to list files from. Defaults to current directory if not provided.",
+						"description": "Relative path to search files from. Defaults to current directory if not provided.",
 					},
-					"extension": client.D{
+					"filter": client.D{
 						"type":        "string",
-						"description": "The file extension to filter by. If not provided, will list all files. If provided, will only list files with the given extension.",
+						"description": "The filter to apply to the file names. It supports golang regex syntax. If not provided, will filtering with take place. If provided, only return files that match the filter.",
+					},
+					"contains": client.D{
+						"type":        "string",
+						"description": "A string to search for inside files. It supports golang regex syntax. If not provided, no search will be performed. If provided, only return files that contain the string.",
 					},
 				},
 				"required": []string{"path"},
@@ -568,16 +584,26 @@ func (lf *ListFiles) toolDocument() client.D {
 
 // Call is the function that is called by the agent to list files when the model
 // requests the tool with the specified parameters.
-func (lf *ListFiles) Call(ctx context.Context, arguments map[string]any) (resp client.D) {
+func (sf *SearchFiles) Call(ctx context.Context, arguments map[string]any) (resp client.D) {
 	defer func() {
 		if r := recover(); r != nil {
-			resp = toolErrorResponse(lf.name, fmt.Errorf("%s", r))
+			resp = toolErrorResponse(sf.name, fmt.Errorf("%s", r))
 		}
 	}()
 
 	dir := "."
-	if arguments["path"] != "" {
-		dir = arguments["path"].(string)
+	if v, exists := arguments["path"]; exists && v != "" {
+		dir = v.(string)
+	}
+
+	filter := ""
+	if v, exists := arguments["filter"]; exists {
+		filter = v.(string)
+	}
+
+	contains := ""
+	if v, exists := arguments["contains"]; exists {
+		contains = v.(string)
 	}
 
 	var files []string
@@ -611,16 +637,28 @@ func (lf *ListFiles) Call(ctx context.Context, arguments map[string]any) (resp c
 			return nil
 		}
 
+		if filter != "" {
+			if matched, _ := regexp.MatchString(filter, relPath); !matched {
+				return nil
+			}
+		}
+
+		if contains != "" {
+			content, err := os.ReadFile(relPath)
+			if err != nil {
+				return nil
+			}
+
+			if matched, _ := regexp.MatchString(contains, string(content)); !matched {
+				return nil
+			}
+		}
+
 		switch {
 		case info.IsDir():
 			files = append(files, relPath+"/")
 
 		default:
-			if arguments["extension"] != "" {
-				if !strings.HasSuffix(relPath, arguments["extension"].(string)) {
-					return nil
-				}
-			}
 			files = append(files, relPath)
 		}
 
@@ -628,10 +666,10 @@ func (lf *ListFiles) Call(ctx context.Context, arguments map[string]any) (resp c
 	})
 
 	if err != nil {
-		return toolErrorResponse(lf.name, err)
+		return toolErrorResponse(sf.name, err)
 	}
 
-	return toolSuccessResponse(lf.name, "files", files)
+	return toolSuccessResponse(sf.name, "files", files)
 }
 
 // =============================================================================

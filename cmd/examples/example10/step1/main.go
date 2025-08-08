@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
 )
@@ -112,8 +113,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		fmt.Printf("\u001b[93m\n%s\u001b[0m: ", model)
 
 		ch := make(chan client.Chat, 100)
+		ctx, cancelContext := context.WithTimeout(ctx, time.Minute*5)
+
 		if err := a.client.Do(ctx, http.MethodPost, url, d, ch); err != nil {
-			return fmt.Errorf("do: %w", err)
+			cancelContext()
+			fmt.Printf("\n\n\u001b[91mERROR:%s\u001b[0m\n\n", err)
+			continue
 		}
 
 		var chunks []string
@@ -128,6 +133,8 @@ func (a *Agent) Run(ctx context.Context) error {
 				fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
 			}
 		}
+
+		cancelContext()
 
 		if len(chunks) > 0 {
 			fmt.Print("\n")
