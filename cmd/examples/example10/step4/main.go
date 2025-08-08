@@ -208,10 +208,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		// ---------------------------------------------------------------------
 		// Now we will make a call to the model.
 
-		var chunks []string      // Store the response chunks since we are streaming
-		reasonThinking := false  // GPT models provide a Reasoning field
-		contentThinking := false // Other reasoning model use <think> tags
-		reasonContent = nil      // Reset the reasoning content for this next call
+		var chunks []string      // Store the response chunks since we are streaming.
+		reasonThinking := false  // GPT models provide a Reasoning field.
+		contentThinking := false // Other reasoning models use <think> tags.
+		reasonContent = nil      // Reset the reasoning content for this next call.
 
 		fmt.Print("\n")
 
