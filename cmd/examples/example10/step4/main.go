@@ -64,20 +64,9 @@ func run() error {
 	}
 
 	// -------------------------------------------------------------------------
-	// Construct the logger, client to talk to the model, and the agent. Then
-	// start the agent.
+	// Construct the agent and get it started.
 
-	logger := func(ctx context.Context, msg string, v ...any) {
-		s := fmt.Sprintf("msg: %s", msg)
-		for i := 0; i < len(v); i = i + 2 {
-			s = s + fmt.Sprintf(", %s: %v", v[i], v[i+1])
-		}
-		log.Println(s)
-	}
-
-	cln := client.NewSSE[client.ChatSSE](logger)
-
-	agent, err := NewAgent(cln, getUserMessage)
+	agent, err := NewAgent(getUserMessage)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
 	}
@@ -97,7 +86,7 @@ type Tool interface {
 
 // Agent represents the chat agent that can use tools to perform tasks.
 type Agent struct {
-	client         *client.SSEClient[client.ChatSSE]
+	sseClient      *client.SSEClient[client.ChatSSE]
 	getUserMessage func() (string, bool)
 	tke            *tiktoken.Tiktoken
 	tools          map[string]Tool
@@ -105,7 +94,20 @@ type Agent struct {
 }
 
 // NewAgent creates a new instance of Agent.
-func NewAgent(sseClient *client.SSEClient[client.ChatSSE], getUserMessage func() (string, bool)) (*Agent, error) {
+func NewAgent(getUserMessage func() (string, bool)) (*Agent, error) {
+
+	// -------------------------------------------------------------------------
+	// Construct the SSE client to make model calls.
+
+	logger := func(ctx context.Context, msg string, v ...any) {
+		s := fmt.Sprintf("msg: %s", msg)
+		for i := 0; i < len(v); i = i + 2 {
+			s = s + fmt.Sprintf(", %s: %v", v[i], v[i+1])
+		}
+		log.Println(s)
+	}
+
+	sseClient := client.NewSSE[client.ChatSSE](logger)
 
 	// -------------------------------------------------------------------------
 	// Construct the tokenizer.
@@ -121,7 +123,7 @@ func NewAgent(sseClient *client.SSEClient[client.ChatSSE], getUserMessage func()
 	tools := map[string]Tool{}
 
 	agent := Agent{
-		client:         sseClient,
+		sseClient:      sseClient,
 		getUserMessage: getUserMessage,
 		tke:            tke,
 		tools:          tools,
@@ -210,7 +212,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		ch := make(chan client.ChatSSE, 100)
 		ctx, cancelContext := context.WithTimeout(ctx, time.Minute*5)
 
-		if err := a.client.Do(ctx, http.MethodPost, url, d, ch); err != nil {
+		if err := a.sseClient.Do(ctx, http.MethodPost, url, d, ch); err != nil {
 			cancelContext()
 			fmt.Printf("\n\n\u001b[91mERROR:%s\u001b[0m\n\n", err)
 			inToolCall = false
@@ -344,7 +346,8 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []cl
 
 // addToConversation will add new messages to the conversation history and
 // calculate the different tokens used in the conversation and display it to the
-// user. We will use this as well to add history to the conversation.
+// user. It will also check the amount of input tokens currently in history
+// and remove the oldest messages if we are over.
 func (a *Agent) addToConversation(reasoning []string, conversation []client.D, newMessages ...client.D) []client.D {
 	conversation = append(conversation, newMessages...)
 
@@ -364,6 +367,9 @@ func (a *Agent) addToConversation(reasoning []string, conversation []client.D, n
 		of := float32(maxInputTokens) / float32(1024)
 
 		fmt.Printf("\u001b[90mTokens Total[%d] Rea[%d] Inp[%d] (%.0f%% of %.0fK Inp tokens)\u001b[0m\n", totalTokens, reasonTokens, totalInput, percentage, of)
+
+		// ---------------------------------------------------------------------
+		// Check if we have too many input tokens and start removing messages.
 
 		if totalInput > maxInputTokens {
 			fmt.Print("\u001b[90mRemoving conversation history\u001b[0m\n")

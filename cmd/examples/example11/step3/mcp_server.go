@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -12,14 +11,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func server(host string, port string) {
+// mcpListenAndServe starts the MCP server for all the tooling we support.
+func mcpListenAndServe(host string) {
 	fileOperations := mcp.NewServer(&mcp.Implementation{Name: "file_operations", Version: "v1.0.0"}, nil)
-	mcp.AddTool(fileOperations, &mcp.Tool{Name: "read_file", Description: "reads a file"}, MCPReadFile)
+
+	RegisterReadFileTool(fileOperations)
 
 	// -------------------------------------------------------------------------
 
-	addr := fmt.Sprintf("%s:%s", host, port)
-	log.Printf("Server: MCP servers serving at %s", addr)
+	fmt.Printf("\nServer: MCP servers serving at %s\n", host)
 
 	// -------------------------------------------------------------------------
 
@@ -27,7 +27,7 @@ func server(host string, port string) {
 		url := request.URL.Path
 
 		switch url {
-		case "/read_file":
+		case "/read_file", "/search_file", "/create_file", "/go_code_editor":
 			return fileOperations
 
 		default:
@@ -36,17 +36,30 @@ func server(host string, port string) {
 	}
 
 	handler := mcp.NewSSEHandler(f)
-	log.Fatal(http.ListenAndServe(addr, handler))
+	fmt.Println(http.ListenAndServe(host, handler))
 }
 
 // =============================================================================
 // Tools
 
-type MCPReadFileParams struct {
+// RegisterReadFileTool registers the read_file tool with the given MCP server.
+func RegisterReadFileTool(mcpServer *mcp.Server) {
+	const toolName = "read_file"
+	const tooDescription = "Read the contents of a given file path or search for files containing a pattern. When searching file contents, returns line numbers where the pattern is found."
+
+	mcp.AddTool(mcpServer, &mcp.Tool{Name: toolName, Description: tooDescription}, ReadFileTool)
+}
+
+// ReadFileToolParams represents the parameters for this tool call.
+type ReadFileToolParams struct {
 	Path string `json:"path" jsonschema:"a possible filter to use"`
 }
 
-func MCPReadFile(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[MCPReadFileParams]) (*mcp.CallToolResultFor[any], error) {
+// ReadFileTool reads the contents of a given file path. It will limit the
+// result to 4096 words.
+func ReadFileTool(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ReadFileToolParams]) (*mcp.CallToolResultFor[any], error) {
+	const maxWords = 4096
+
 	dir := "."
 	if params.Arguments.Path != "" {
 		dir = params.Arguments.Path
@@ -59,8 +72,8 @@ func MCPReadFile(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToo
 
 	v := string(content)
 	words := strings.Fields(v)
-	if len(words) > 4096 {
-		words = words[:4096]
+	if len(words) > maxWords {
+		words = words[:maxWords]
 	}
 
 	info := struct {

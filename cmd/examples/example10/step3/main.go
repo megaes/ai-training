@@ -48,17 +48,7 @@ func run() error {
 		return scanner.Text(), true
 	}
 
-	logger := func(ctx context.Context, msg string, v ...any) {
-		s := fmt.Sprintf("msg: %s", msg)
-		for i := 0; i < len(v); i = i + 2 {
-			s = s + fmt.Sprintf(", %s: %v", v[i], v[i+1])
-		}
-		log.Println(s)
-	}
-
-	cln := client.NewSSE[client.ChatSSE](logger)
-
-	agent := NewAgent(cln, getUserMessage)
+	agent := NewAgent(getUserMessage)
 
 	return agent.Run(context.TODO())
 }
@@ -79,7 +69,7 @@ type Tool interface {
 
 // Agent represents the chat agent that can use tools to perform tasks.
 type Agent struct {
-	client         *client.SSEClient[client.ChatSSE]
+	sseClient      *client.SSEClient[client.ChatSSE]
 	getUserMessage func() (string, bool)
 
 	// ADDING TOOL SUPPORT TO THE AGENT.
@@ -88,14 +78,23 @@ type Agent struct {
 }
 
 // NewAgent creates a new instance of Agent.
-func NewAgent(sseClient *client.SSEClient[client.ChatSSE], getUserMessage func() (string, bool)) *Agent {
+func NewAgent(getUserMessage func() (string, bool)) *Agent {
+	logger := func(ctx context.Context, msg string, v ...any) {
+		s := fmt.Sprintf("msg: %s", msg)
+		for i := 0; i < len(v); i = i + 2 {
+			s = s + fmt.Sprintf(", %s: %v", v[i], v[i+1])
+		}
+		log.Println(s)
+	}
+
+	sseClient := client.NewSSE[client.ChatSSE](logger)
 
 	// CONSTRUCT THE TOOLS ALONG WITH THEIR DOCUMENTS.
 
 	tools := map[string]Tool{}
 
 	return &Agent{
-		client:         sseClient,
+		sseClient:      sseClient,
 		getUserMessage: getUserMessage,
 		tools:          tools,
 		toolDocuments: []client.D{
@@ -148,7 +147,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		ch := make(chan client.ChatSSE, 100)
 		ctx, cancelContext := context.WithTimeout(ctx, time.Minute*5)
 
-		if err := a.client.Do(ctx, http.MethodPost, url, d, ch); err != nil {
+		if err := a.sseClient.Do(ctx, http.MethodPost, url, d, ch); err != nil {
 			cancelContext()
 			fmt.Printf("\n\n\u001b[91mERROR:%s\u001b[0m\n\n", err)
 			continue
