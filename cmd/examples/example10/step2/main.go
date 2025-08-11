@@ -113,6 +113,11 @@ func weatherQuestion(ctx context.Context) error {
 		case len(resp.Choices[0].Delta.ToolCalls) > 0:
 			fmt.Printf("\n\nModel Asking For Tool Call:\n\n%s(%s)\n\n", resp.Choices[0].Delta.ToolCalls[0].Function.Name, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
 
+			conversation = append(conversation, client.D{
+				"role":    "assistant",
+				"content": fmt.Sprintf("Tool call: %s(%v)", resp.Choices[0].Delta.ToolCalls[0].Function.Name, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments),
+			})
+
 			resp := getWeather.Call(ctx, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
 			conversation = append(conversation, resp)
 
@@ -173,7 +178,7 @@ type GetWeather struct {
 // NewGetWeather creates a new instance of GetWeather.
 func NewGetWeather() *GetWeather {
 	return &GetWeather{
-		name: "get_current_weather",
+		name: "tool_get_current_weather",
 	}
 }
 

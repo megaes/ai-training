@@ -29,7 +29,7 @@ type ReadFile struct {
 // into the provided tools map.
 func NewReadFile(tools map[string]Tool) client.D {
 	rf := ReadFile{
-		name: "read_file",
+		name: "tool_read_file",
 	}
 	tools[rf.name] = &rf
 
@@ -91,7 +91,7 @@ type SearchFiles struct {
 // into the provided tools map.
 func NewSearchFiles(tools map[string]Tool) client.D {
 	sf := SearchFiles{
-		name: "search_files",
+		name: "tool_search_files",
 	}
 	tools[sf.name] = &sf
 
@@ -229,7 +229,7 @@ type CreateFile struct {
 // into the provided tools map.
 func NewCreateFile(tools map[string]Tool) client.D {
 	cf := CreateFile{
-		name: "create_file",
+		name: "tool_create_file",
 	}
 	tools[cf.name] = &cf
 
@@ -298,7 +298,7 @@ type GoCodeEditor struct {
 // into the provided tools map.
 func NewGoCodeEditor(tools map[string]Tool) client.D {
 	gce := GoCodeEditor{
-		name: "go_code_editor",
+		name: "tool_go_code_editor",
 	}
 	tools[gce.name] = &gce
 

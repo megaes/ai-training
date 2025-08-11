@@ -170,6 +170,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		for resp := range ch {
 			switch {
 			case len(resp.Choices[0].Delta.ToolCalls) > 0:
+				conversation = append(conversation, client.D{
+					"role":    "assistant",
+					"content": fmt.Sprintf("Tool call: %s(%v)", resp.Choices[0].Delta.ToolCalls[0].Function.Name, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments),
+				})
+
 				results := a.callTools(ctx, resp.Choices[0].Delta.ToolCalls)
 
 				// NOW WE NEED TO CHECK IF THE TOOL CALLS PROVIDED ANY RESULTS
@@ -246,7 +251,7 @@ type GetWeather struct {
 // into the provided tools map.
 func NewGetWeather(tools map[string]Tool) client.D {
 	gw := GetWeather{
-		name: "get_current_weather",
+		name: "tool_get_current_weather",
 	}
 	tools[gw.name] = &gw
 

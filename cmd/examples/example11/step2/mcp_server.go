@@ -48,7 +48,7 @@ func mcpListenAndServe(host string) {
 
 // RegisterReadFileTool registers the read_file tool with the given MCP server.
 func RegisterReadFileTool(mcpServer *mcp.Server) string {
-	const toolName = "read_file"
+	const toolName = "tool_read_file"
 	const tooDescription = "Read the contents of a given file path or search for files containing a pattern. When searching file contents, returns line numbers where the pattern is found."
 
 	mcp.AddTool(mcpServer, &mcp.Tool{Name: toolName, Description: tooDescription}, ReadFileTool)
@@ -95,7 +95,7 @@ func ReadFileTool(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 
 // RegisterSearchFilesTool registers the search_files tool with the given MCP server.
 func RegisterSearchFilesTool(mcpServer *mcp.Server) string {
-	const toolName = "search_files"
+	const toolName = "tool_search_files"
 	const tooDescription = "Read the contents of a given file path or search for files containing a pattern. When searching file contents, returns line numbers where the pattern is found."
 
 	mcp.AddTool(mcpServer, &mcp.Tool{Name: toolName, Description: tooDescription}, SearchFilesTool)
@@ -206,7 +206,7 @@ func SearchFilesTool(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 
 // RegisterCreateFileTool registers the search_files tool with the given MCP server.
 func RegisterCreateFileTool(mcpServer *mcp.Server) string {
-	const toolName = "create_file"
+	const toolName = "tool_create_file"
 	const tooDescription = "Creates a new file"
 
 	mcp.AddTool(mcpServer, &mcp.Tool{Name: toolName, Description: tooDescription}, CreateFileTool)
@@ -264,7 +264,7 @@ func CreateFileTool(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 
 // RegisterGoCodeEditorTool registers the go_code_editor tool with the given MCP server.
 func RegisterGoCodeEditorTool(mcpServer *mcp.Server) string {
-	const toolName = "go_code_editor"
+	const toolName = "tool_go_code_editor"
 	const tooDescription = "Edit Golang source code files including adding, replacing, and deleting lines."
 
 	mcp.AddTool(mcpServer, &mcp.Tool{Name: toolName, Description: tooDescription}, GoCodeEditorTool)

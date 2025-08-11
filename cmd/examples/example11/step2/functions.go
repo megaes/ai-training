@@ -61,7 +61,7 @@ type ReadFile struct {
 // NewReadFile creates a new instance of the ReadFile tool and loads it
 // into the provided tools map.
 func NewReadFile(mcpClient *mcpClient, tools map[string]Tool) client.D {
-	toolName := "read_file"
+	toolName := "tool_read_file"
 
 	addr := fmt.Sprintf("http://%s/%s", mcpHost, toolName)
 	transport := mcp.NewSSEClientTransport(addr, nil)
@@ -142,7 +142,7 @@ type SearchFiles struct {
 // NewSearchFiles creates a new instance of the SearchFiles tool and loads it
 // into the provided tools map.
 func NewSearchFiles(mcpClient *mcpClient, tools map[string]Tool) client.D {
-	toolName := "search_files"
+	toolName := "tool_search_files"
 
 	addr := fmt.Sprintf("http://%s/%s", mcpHost, toolName)
 	transport := mcp.NewSSEClientTransport(addr, nil)
@@ -231,7 +231,7 @@ type CreateFile struct {
 // NewCreateFile creates a new instance of the CreateFile tool and loads it
 // into the provided tools map.
 func NewCreateFile(mcpClient *mcpClient, tools map[string]Tool) client.D {
-	toolName := "create_file"
+	toolName := "tool_create_file"
 
 	addr := fmt.Sprintf("http://%s/%s", mcpHost, toolName)
 	transport := mcp.NewSSEClientTransport(addr, nil)
@@ -312,7 +312,7 @@ type GoCodeEditor struct {
 // NewGoCodeEditor creates a new instance of the GoCodeEditor tool and loads it
 // into the provided tools map.
 func NewGoCodeEditor(mcpClient *mcpClient, tools map[string]Tool) client.D {
-	toolName := "go_code_editor"
+	toolName := "tool_go_code_editor"
 
 	addr := fmt.Sprintf("http://%s/%s", mcpHost, toolName)
 	transport := mcp.NewSSEClientTransport(addr, nil)
