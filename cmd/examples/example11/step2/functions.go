@@ -34,7 +34,7 @@ func (cln *mcpClient) Call(ctx context.Context, transport *mcp.SSEClientTranspor
 	}
 	defer session.Close()
 
-	fmt.Printf("\u001b[92mtool: calling tool: %s\u001b[0m\n\n", params.Name)
+	fmt.Printf("\u001b[92mtool: calling tool: %s(%v)\u001b[0m\n\n", params.Name, params.Arguments)
 
 	res, err := session.CallTool(ctx, params)
 	if err != nil {
@@ -382,13 +382,12 @@ func (gce *GoCodeEditor) Call(ctx context.Context, arguments map[string]any) (re
 	data := results[0].(*mcp.TextContent).Text
 
 	var info struct {
-		Status string `json:"status"`
-		Action string `json:"action"`
+		Message string `json:"message"`
 	}
 
 	if err := json.Unmarshal([]byte(data), &info); err != nil {
 		return toolErrorResponse(gce.name, err)
 	}
 
-	return toolSuccessResponse(gce.name, "status", info.Status)
+	return toolSuccessResponse(gce.name, "message", info.Message)
 }

@@ -32,7 +32,7 @@ func mcpListenAndServe(host string) {
 		case RegisterReadFileTool(fileOperations),
 			RegisterSearchFilesTool(fileOperations),
 			RegisterCreateFileTool(fileOperations),
-			"/go_code_editor":
+			RegisterGoCodeEditorTool(fileOperations):
 			return fileOperations
 
 		default:
@@ -267,7 +267,7 @@ func RegisterGoCodeEditorTool(mcpServer *mcp.Server) string {
 	const toolName = "go_code_editor"
 	const tooDescription = "Edit Golang source code files including adding, replacing, and deleting lines."
 
-	mcp.AddTool(mcpServer, &mcp.Tool{Name: toolName, Description: tooDescription}, CreateFileTool)
+	mcp.AddTool(mcpServer, &mcp.Tool{Name: toolName, Description: tooDescription}, GoCodeEditorTool)
 
 	return "/" + toolName
 }
@@ -353,11 +353,9 @@ func GoCodeEditorTool(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 	}
 
 	info := struct {
-		Status string `json:"status"`
-		Action string `json:"action"`
+		Message string `json:"message"`
 	}{
-		Status: "SUCCESS",
-		Action: action,
+		Message: action,
 	}
 
 	data, err := json.Marshal(info)

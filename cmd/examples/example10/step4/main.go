@@ -1,4 +1,5 @@
 // https://ampcode.com/how-to-build-an-agent
+// bill was here
 //
 // This example shows you a final example of the coding agent with support
 // to read, list, and edit files.
@@ -7,6 +8,7 @@
 //
 //	$ make example10-step4
 //
+// bill was here
 // # This requires running the following commands:
 //
 //	$ make ollama-up  // This starts the Ollama service.
@@ -337,7 +339,7 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []cl
 			continue
 		}
 
-		fmt.Printf("\u001b[92mtool\u001b[0m: %s(%v)\n", toolCall.Function.Name, toolCall.Function.Arguments)
+		fmt.Printf("\u001b[92mtool: %s(%v)\u001b[0m:\n", toolCall.Function.Name, toolCall.Function.Arguments)
 
 		resp := tool.Call(ctx, toolCall.Function.Arguments)
 		resps = append(resps, resp)
