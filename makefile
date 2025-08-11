@@ -104,7 +104,7 @@ docker:
 	docker pull postgres:17.5
 
 ollama-pull:
-	ollama pull mxbai-embed-large
+	ollama pull bge-m3:latest
 	ollama pull llama3.2-vision
 	ollama pull gpt-oss:latest
 

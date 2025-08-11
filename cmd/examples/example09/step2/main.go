@@ -202,7 +202,7 @@ func updateImage(fileName string, description string) error {
 
 func generateEmbeddings(description string) error {
 	llm, err := ollama.New(
-		ollama.WithModel("mxbai-embed-large"),
+		ollama.WithModel("bge-m3:latest"),
 		ollama.WithServerURL("http://localhost:11434"),
 	)
 	if err != nil {

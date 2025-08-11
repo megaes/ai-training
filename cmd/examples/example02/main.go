@@ -42,7 +42,7 @@ func (d data) Vector() []float32 {
 
 func main() {
 	llm, err := ollama.New(
-		ollama.WithModel("mxbai-embed-large"),
+		ollama.WithModel("bge-m3:latest"),
 		ollama.WithServerURL("http://localhost:11434"),
 	)
 	if err != nil {

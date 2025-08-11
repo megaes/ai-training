@@ -56,7 +56,7 @@ func run() error {
 		return nil
 	}
 
-	fmt.Print("THIS MAY TAKE A MINUTE OR MORE, BE PATIENT\n\n")
+	fmt.Print("\n")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 	defer cancel()
@@ -80,7 +80,7 @@ func vectorSearch(ctx context.Context, question string) ([]searchResult, error) 
 
 	// Open a connection with ollama to access the model.
 	llm, err := ollama.New(
-		ollama.WithModel("mxbai-embed-large"),
+		ollama.WithModel("bge-m3:latest"),
 		ollama.WithServerURL("http://localhost:11434"),
 	)
 	if err != nil {

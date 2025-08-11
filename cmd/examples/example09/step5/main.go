@@ -302,7 +302,7 @@ func updateImage(fileName string, description string) error {
 
 func generateEmbeddings(description string) ([]float32, error) {
 	llm, err := ollama.New(
-		ollama.WithModel("mxbai-embed-large"),
+		ollama.WithModel("bge-m3:latest"),
 		ollama.WithServerURL("http://localhost:11434"),
 	)
 	if err != nil {
@@ -410,7 +410,7 @@ func vectorSearch(ctx context.Context, col *mongo.Collection, question string) (
 
 	// Open a connection with ollama to access the model.
 	llm, err := ollama.New(
-		ollama.WithModel("mxbai-embed-large"),
+		ollama.WithModel("bge-m3:latest"),
 		ollama.WithServerURL("http://localhost:11434"),
 	)
 	if err != nil {
