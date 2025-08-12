@@ -77,6 +77,8 @@ func main() {
 		data{Name: "Queen   ", Text: "Human,  Female, Dress, Rich, Ruler"},
 	}
 
+	fmt.Print("\n")
+
 	// Iterate over each data point and use the LLM to generate the vector
 	// embedding related to the model.
 	for i, dp := range dataPoints {
@@ -89,7 +91,11 @@ func main() {
 
 		dataPoint.Embedding = vectors[0]
 		dataPoints[i] = dataPoint
+
+		fmt.Printf("Vector: len(%d) %v...%v\n", len(vectors[0]), vectors[0][0:2], vectors[0][len(vectors[0])-2:])
 	}
+
+	fmt.Print("\n")
 
 	// -------------------------------------------------------------------------
 

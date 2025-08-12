@@ -82,7 +82,7 @@ func main() {
 	// Display the data points.
 	fmt.Print("\n")
 	for _, v := range dataPoints {
-		fmt.Printf("%s: %v\n", v.(data).Name, v)
+		fmt.Printf("Vector: len(%d) %v\n", len(v.(data).Vector()), v.(data).Vector())
 	}
 	fmt.Print("\n")
 
