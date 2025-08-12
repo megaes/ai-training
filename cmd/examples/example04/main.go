@@ -109,44 +109,15 @@ func run() error {
 	fmt.Println("Created ID Index")
 
 	// -------------------------------------------------------------------------
+	// Delete any documents that might be there.
+
+	col.DeleteOne(ctx, bson.D{{Key: "id", Value: 1}})
+	col.DeleteOne(ctx, bson.D{{Key: "id", Value: 2}})
+
+	// -------------------------------------------------------------------------
 	// Store some documents with their embeddings.
 
-	if err := storeDocuments(ctx, col); err != nil {
-		return fmt.Errorf("storeDocuments: %w", err)
-	}
-
-	// -------------------------------------------------------------------------
-	// Perform a vector search.
-
-	fmt.Print("\n---- VECTOR SEARCH ----\n\n")
-
-	results, err := vectorSearch(ctx, col, []float64{1.2, 2.2, 3.2, 4.2}, 10)
-	if err != nil {
-		return fmt.Errorf("storeDocuments: %w", err)
-	}
-
-	fmt.Printf("%#v\n", results)
-
-	return nil
-}
-
-func storeDocuments(ctx context.Context, col *mongo.Collection) error {
-
-	// -------------------------------------------------------------------------
-	// If these records already exist, we don't need to add them again.
-
-	findRes, err := col.Find(ctx, bson.D{})
-	if err != nil {
-		return fmt.Errorf("find: %w", err)
-	}
-	defer findRes.Close(ctx)
-
-	if findRes.RemainingBatchLength() != 0 {
-		return nil
-	}
-
-	// -------------------------------------------------------------------------
-	// Let's add two documents to the database.
+	fmt.Println("\nInserting Documents")
 
 	d1 := document{
 		ID:        1,
@@ -165,7 +136,22 @@ func storeDocuments(ctx context.Context, col *mongo.Collection) error {
 		return fmt.Errorf("insert: %w", err)
 	}
 
-	fmt.Println(res.InsertedIDs)
+	fmt.Printf("%v\n", res.InsertedIDs)
+
+	// We need to give Mongo a little time to index the documents.
+	time.Sleep(time.Second)
+
+	// -------------------------------------------------------------------------
+	// Perform a vector search.
+
+	fmt.Print("\n---- VECTOR SEARCH ----\n\n")
+
+	results, err := vectorSearch(ctx, col, []float64{1.2, 2.2, 3.2, 4.2}, 10)
+	if err != nil {
+		return fmt.Errorf("storeDocuments: %w", err)
+	}
+
+	fmt.Printf("%#v\n", results)
 
 	return nil
 }
