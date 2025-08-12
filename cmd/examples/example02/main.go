@@ -58,6 +58,15 @@ func main() {
 
 	// -------------------------------------------------------------------------
 
+	// Old way of representing this data with our own vector data points.
+	// dataPoints := []vector.Data{
+	// 	data{Name: "Horse   ", Authority: 0.0, Animal: 1.0, Human: 0.0, Rich: 0.0, Gender: +1.0},
+	// 	data{Name: "Man     ", Authority: 0.0, Animal: 0.0, Human: 1.0, Rich: 0.0, Gender: -1.0},
+	// 	data{Name: "Woman   ", Authority: 0.0, Animal: 0.0, Human: 1.0, Rich: 0.0, Gender: +1.0},
+	// 	data{Name: "King    ", Authority: 1.0, Animal: 0.0, Human: 1.0, Rich: 1.0, Gender: -1.0},
+	// 	data{Name: "Queen   ", Authority: 1.0, Animal: 0.0, Human: 1.0, Rich: 1.0, Gender: +1.0},
+	// }
+
 	// Apply the feature vectors to the hand crafted data points.
 	// This time you need to use words since we are using a word based model.
 	dataPoints := []vector.Data{
