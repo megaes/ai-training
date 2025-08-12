@@ -22,6 +22,30 @@ SHELL = $(if $(wildcard $(SHELL_PATH)),/bin/ash,/bin/bash)
 # db.book.find({id: 300})
 
 # ==============================================================================
+# Install dependencies
+
+install:
+	brew install mongosh
+	brew install ollama
+	brew install mplayer
+	brew install pgcli
+	brew install uv
+
+docker:
+	docker pull mongodb/mongodb-atlas-local
+	docker pull ghcr.io/open-webui/open-webui:v0.6.18
+	docker pull postgres:17.5
+
+ollama-pull:
+	ollama pull bge-m3:latest
+	ollama pull qwen2.5vl:latest
+	ollama pull gpt-oss:latest
+
+python-install:
+	rm -rf .venv
+	uv venv --python 3.12 && uv lock && uv sync
+
+# ==============================================================================
 # Examples
 
 OLLAMA_CONTEXT_LENGTH := 65536
@@ -87,30 +111,6 @@ example11-step1:
 example11-step2:
 	export OLLAMA_CONTEXT_LENGTH=$(OLLAMA_CONTEXT_LENGTH) && \
 	go run cmd/examples/example11/step2/*.go
-
-# ==============================================================================
-# Install dependencies
-
-install:
-	brew install mongosh
-	brew install ollama
-	brew install mplayer
-	brew install pgcli
-	brew install uv
-
-docker:
-	docker pull mongodb/mongodb-atlas-local
-	docker pull ghcr.io/open-webui/open-webui:v0.6.18
-	docker pull postgres:17.5
-
-ollama-pull:
-	ollama pull bge-m3:latest
-	ollama pull qwen2.5vl:latest
-	ollama pull gpt-oss:latest
-
-python-install:
-	rm -rf .venv
-	uv venv --python 3.12 && uv lock && uv sync
 
 # ==============================================================================
 # Manage project
