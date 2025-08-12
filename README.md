@@ -1,6 +1,6 @@
 # Ultimate AI
 
-Copyright 2024 Ardan Labs  
+Copyright 2024, 2025 Ardan Labs  
 hello@ardanlabs.com
 
 ## My Information
