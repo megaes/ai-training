@@ -510,16 +510,13 @@ func questionResponse(ctx context.Context, llm *ollama.LLM, question string, res
 
 	// -------------------------------------------------------------------------
 
-	prompt := `Use the following pieces of information to answer the user's
-	question. If you don't know the answer, say that you cannot find anything
-	matching the description. Answer the question only with the full filename,
-	including path, of the picture matching the description without providing
-	any additional details except what you already have.
+	prompt := `Use the following results to answer the user's question. If there
+	are not results, say that you cannot find anything matching the description.
 	
 	The response should be in a JSON format with the following fields:
 	{"status": "found", "filename": "<file_name>", "description": "<image_description>"}
 
-	If the file is missing, we should have this response:
+	If there are no results, we should have this response:
 	{"status": "not found"}
 
 	Responses should be properly formatted and always a JSON like in the example.
@@ -533,10 +530,13 @@ func questionResponse(ctx context.Context, llm *ollama.LLM, question string, res
 		{"file_name":"<filepath>", "image_description":"<description>"},
 	]
 
-	Context:
+	RESULTS:
+	
 	%s
 		
-	Question: %s
+	QUESTION:
+	
+	%s
 	`
 
 	finalPrompt := fmt.Sprintf(prompt, string(content), question)
