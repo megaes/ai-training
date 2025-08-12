@@ -167,6 +167,7 @@ func run() error {
 		ctx,
 		messages,
 		llms.WithMaxTokens(contextWindow),
+		llms.WithTemperature(1.0),
 	)
 	if err != nil {
 		return fmt.Errorf("generate content: %w", err)
