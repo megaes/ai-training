@@ -31,7 +31,7 @@ const (
 	url        = "http://localhost:11434"
 	model      = "llama3.2-vision"
 	embedModel = "bge-m3:latest"
-	imagePath  = "cmd/samples/roseimg.png"
+	imagePath  = "cmd/samples/gallery/roseimg.png"
 )
 
 // The context window represents the maximum number of tokens that can be sent

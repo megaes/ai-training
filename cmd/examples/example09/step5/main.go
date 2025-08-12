@@ -40,7 +40,7 @@ const (
 	embedModel     = "bge-m3:latest"
 	dbName         = "example9"
 	collectionName = "images-5"
-	gallaryPath    = "cmd/samples/gallery/sample/"
+	gallaryPath    = "cmd/samples/gallery/"
 )
 
 // The context window represents the maximum number of tokens that can be sent

@@ -36,7 +36,7 @@ import (
 const (
 	url            = "http://localhost:11434"
 	model          = "llama3.2-vision"
-	imagePath      = "cmd/samples/roseimg.png"
+	imagePath      = "cmd/samples/gallery/roseimg.png"
 	embedModel     = "bge-m3:latest"
 	dbName         = "example9"
 	collectionName = "images-3"
