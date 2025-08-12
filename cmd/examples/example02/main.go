@@ -105,7 +105,7 @@ func main() {
 		results := vector.Similarity(target, dataPoints...)
 
 		for _, result := range results {
-			fmt.Printf("%s -> %s: %.3f%% similar\n",
+			fmt.Printf("%s -> %s: %.2f%% similar\n",
 				result.Target.(data).Name,
 				result.DataPoint.(data).Name,
 				result.Percentage)
