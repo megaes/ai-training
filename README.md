@@ -11,6 +11,12 @@ Company: Ardan Labs
 Title:   Managing Partner
 Email:   bill@ardanlabs.com
 Twitter: goinggodotnet
+
+Name:    Florin Pàțan
+Company: Ardan Labs
+Title:   Senior Engineer
+Email:   florin.patan@ardanlabs.com
+Twitter: dlsniper
 ```
 
 ## Description
@@ -32,11 +38,13 @@ make install
 ```
 
 Next you want to pull down these images:
+
 - `mongodb/mongodb-atlas-local`
 - `ghcr.io/open-webui/open-webui:v0.6.18`
 - `postgres:17.5`
 
 Run the following command to do so:
+
 ```
 make docker
 ```
