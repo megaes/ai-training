@@ -46,6 +46,8 @@ func init() {
 	}
 }
 
+// =============================================================================
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -61,7 +63,10 @@ func run() error {
 		return scanner.Text(), true
 	}
 
-	agent := NewAgent(getUserMessage)
+	agent, err := NewAgent(getUserMessage)
+	if err != nil {
+		return fmt.Errorf("failed to create agent: %w", err)
+	}
 
 	return agent.Run(context.TODO())
 }
@@ -75,7 +80,7 @@ type Agent struct {
 }
 
 // NewAgent creates a new instance of Agent.
-func NewAgent(getUserMessage func() (string, bool)) *Agent {
+func NewAgent(getUserMessage func() (string, bool)) (*Agent, error) {
 	logger := func(ctx context.Context, msg string, v ...any) {
 		s := fmt.Sprintf("msg: %s", msg)
 		for i := 0; i < len(v); i = i + 2 {
@@ -86,10 +91,12 @@ func NewAgent(getUserMessage func() (string, bool)) *Agent {
 
 	sseClient := client.NewSSE[client.ChatSSE](logger)
 
-	return &Agent{
+	agent := Agent{
 		sseClient:      sseClient,
 		getUserMessage: getUserMessage,
 	}
+
+	return &agent, nil
 }
 
 // Run starts the agent and runs the chat loop.

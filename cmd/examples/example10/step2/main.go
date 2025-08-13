@@ -1,6 +1,7 @@
 // https://ampcode.com/how-to-build-an-agent
 //
-// This example shows you the workflow and mechanics for tool calling.
+// This example shows you how add token counting, context window limits, and
+// better UI formatting to the chat agent from step 1.
 //
 // # Running the example:
 //
@@ -12,15 +13,19 @@
 package main
 
 import (
+	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
+	"github.com/ardanlabs/ai-training/foundation/tiktoken"
 )
 
 const (
@@ -43,6 +48,8 @@ func init() {
 	}
 }
 
+// =============================================================================
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -50,14 +57,36 @@ func main() {
 }
 
 func run() error {
-	if err := weatherQuestion(context.TODO()); err != nil {
-		return fmt.Errorf("weatherQuestion: %w", err)
+	scanner := bufio.NewScanner(os.Stdin)
+	getUserMessage := func() (string, bool) {
+		if !scanner.Scan() {
+			return "", false
+		}
+		return scanner.Text(), true
 	}
 
-	return nil
+	agent, err := NewAgent(getUserMessage)
+	if err != nil {
+		return fmt.Errorf("failed to create agent: %w", err)
+	}
+
+	return agent.Run(context.TODO())
 }
 
-func weatherQuestion(ctx context.Context) error {
+// =============================================================================
+
+// Agent represents the chat agent that can use tools to perform tasks.
+type Agent struct {
+	sseClient      *client.SSEClient[client.ChatSSE]
+	getUserMessage func() (string, bool)
+
+	// WE WILL ADD OUR OWN TOKENIZER TO COUNT THE TOKENS IN THE CONVERSATION.
+
+	tke *tiktoken.Tiktoken
+}
+
+// NewAgent creates a new instance of Agent.
+func NewAgent(getUserMessage func() (string, bool)) (*Agent, error) {
 	logger := func(ctx context.Context, msg string, v ...any) {
 		s := fmt.Sprintf("msg: %s", msg)
 		for i := 0; i < len(v); i = i + 2 {
@@ -66,192 +95,206 @@ func weatherQuestion(ctx context.Context) error {
 		log.Println(s)
 	}
 
-	cln := client.NewSSE[client.ChatSSE](logger)
+	sseClient := client.NewSSE[client.ChatSSE](logger)
 
-	// -------------------------------------------------------------------------
-	// Start by asking what the weather is like in New York City
-
-	getWeather := NewGetWeather()
-
-	q := "What is the weather like in New York City?"
-	fmt.Printf("\nQuestion:\n\n%s\n", q)
-
-	conversation := []client.D{
-		{
-			"role":    "user",
-			"content": q,
-		},
+	// WE WILL CONSTRUCT OUR OWN TOKENIZER.
+	tke, err := tiktoken.NewTiktoken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tiktoken: %w", err)
 	}
 
-	d := client.D{
-		"model":       model,
-		"messages":    conversation,
-		"max_tokens":  contextWindow,
-		"temperature": 0.1,
-		"top_p":       0.1,
-		"top_k":       1,
-		"stream":      true,
-		"tools": []client.D{
-			getWeather.ToolDocument(),
-		},
-		"tool_selection": "auto",
+	agent := Agent{
+		sseClient:      sseClient,
+		getUserMessage: getUserMessage,
+
+		// ADD THE TOKENIZER TO THE AGENT.
+		tke: tke,
 	}
 
-	ch := make(chan client.ChatSSE, 100)
-	if err := cln.Do(ctx, http.MethodPost, url, d, ch); err != nil {
-		return fmt.Errorf("do: %w", err)
-	}
+	return &agent, nil
+}
 
-	// -------------------------------------------------------------------------
-	// The model will respond asking us to make the get_current_weather function
-	// call. We will make the call and then send the response back to the model.
+// WE WILL ADD A SYSTEM PROMPT TO THE AGENT TO HELP WITH CLARIFYING INSTRUCTIONS.
 
-	fmt.Print("\n")
+// The system prompt for the model so it behaves as expected.
+var systemPrompt = `You are a helpful coding assistant that has tools to assist
+you in coding.
 
-	for resp := range ch {
-		switch {
-		case len(resp.Choices[0].Delta.ToolCalls) > 0:
-			fmt.Printf("\n\nModel Asking For Tool Call:\n\n%s(%s)\n\n", resp.Choices[0].Delta.ToolCalls[0].Function.Name, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
+Reasoning: high
+`
 
-			conversation = append(conversation, client.D{
-				"role":    "assistant",
-				"content": fmt.Sprintf("Tool call: %s(%v)", resp.Choices[0].Delta.ToolCalls[0].Function.Name, resp.Choices[0].Delta.ToolCalls[0].Function.Arguments),
-			})
+// Run starts the agent and runs the chat loop.
+func (a *Agent) Run(ctx context.Context) error {
+	var conversation []client.D
 
-			resp := getWeather.Call(ctx, resp.Choices[0].Delta.ToolCalls[0])
-			conversation = append(conversation, resp)
+	// WE WILL MAINTAIN THE REASONING CONTENT FOR TOKEN COUNTING.
+	// AND TO MAKE SURE WE DON'T ADD THE REASONING TO THE CONVERSATION.
+	var reasonContent []string
 
-			fmt.Printf("Tool Call Result:\n\n%s\n\n", resp)
+	// WE WILL ADD THE SYSTEM PROMPT TO THE CONVERSATION.
+	conversation = append(conversation, client.D{
+		"role":    "system",
+		"content": systemPrompt,
+	})
 
-		case resp.Choices[0].Delta.Reasoning != "":
-			fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
+	fmt.Printf("\nChat with %s (use 'ctrl-c' to quit)\n", model)
+
+	for {
+		fmt.Print("\u001b[94m\nYou\u001b[0m: ")
+		userInput, ok := a.getUserMessage()
+		if !ok {
+			break
 		}
-	}
 
-	// -------------------------------------------------------------------------
-	// Send the result of the tool call back to the model
+		conversation = append(conversation, client.D{
+			"role":    "user",
+			"content": userInput,
+		})
 
-	d = client.D{
-		"model":       model,
-		"messages":    conversation,
-		"max_tokens":  contextWindow,
-		"temperature": 0.1,
-		"top_p":       0.1,
-		"top_k":       50,
-		"stream":      true,
-		"tools": []client.D{
-			getWeather.ToolDocument(),
-		},
-		"tool_selection": "auto",
-	}
+		d := client.D{
+			"model":       model,
+			"messages":    conversation,
+			"max_tokens":  contextWindow,
+			"temperature": 0.0,
+			"top_p":       0.1,
+			"top_k":       1,
+			"stream":      true,
+		}
 
-	ch = make(chan client.ChatSSE, 100)
-	if err := cln.Do(ctx, http.MethodPost, url, d, ch); err != nil {
-		return fmt.Errorf("do: %w", err)
-	}
+		fmt.Printf("\u001b[93m\n%s\u001b[0m: ", model)
 
-	// -------------------------------------------------------------------------
-	// The model should provide the answer based on the tool call
+		ch := make(chan client.ChatSSE, 100)
+		ctx, cancelContext := context.WithTimeout(ctx, time.Minute*5)
 
-	fmt.Print("Final Result:\n\n")
+		if err := a.sseClient.Do(ctx, http.MethodPost, url, d, ch); err != nil {
+			cancelContext()
+			fmt.Printf("\n\n\u001b[91mERROR:%s\u001b[0m\n\n", err)
+			continue
+		}
 
-	for resp := range ch {
-		switch {
-		case resp.Choices[0].Delta.Content != "":
-			fmt.Print(resp.Choices[0].Delta.Content)
+		var chunks []string
 
-		case resp.Choices[0].Delta.Reasoning != "":
-			fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
+		// WE WILL CREATE FLAGS TO KNOW WHEN WE ARE PROCESSING REASONING CONTENT.
+
+		reasonThinking := false  // GPT models provide a Reasoning field.
+		contentThinking := false // Other reasoning models use <think> tags.
+		reasonContent = nil      // Reset the reasoning content for this next call.
+
+		// WE WILL ADD SOME IMPROVED FORMATTING.
+		fmt.Print("\n")
+
+		for resp := range ch {
+			switch {
+			case resp.Choices[0].Delta.Content != "":
+
+				// WE NEED TO RESET THE REASONING FLAG ONCE THE MODEL IS
+				// DONE REASONING.
+				if reasonThinking {
+					reasonThinking = false
+					fmt.Print("\n\n")
+				}
+
+				// WE NEED TO CHECK IF THE REASONING IS HAPPENING VIA
+				// <think> TAGS.
+				switch resp.Choices[0].Delta.Content {
+				case "<think>":
+					contentThinking = true
+					continue
+				case "</think>":
+					contentThinking = false
+					continue
+				}
+
+				// WE NEED TO ADJUST OUR ORIGINAL SWITCH TO TAKE INTO ACCOUNT
+				// WE MIGHT HAVE BEEN PROCESSING <think> TAGS.
+				switch {
+				case !contentThinking:
+					fmt.Print(resp.Choices[0].Delta.Content)
+					chunks = append(chunks, resp.Choices[0].Delta.Content)
+
+				case contentThinking:
+					reasonContent = append(reasonContent, resp.Choices[0].Delta.Content)
+					fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Content)
+				}
+
+			// WE NEED TO CHECK IF THE MODEL IS THINKING VIA THIS REASONING
+			// FIELD AND TRACK AND CAPTURE THAT SEPARATELY FROM THE CONVERSATION.
+			case resp.Choices[0].Delta.Reasoning != "":
+				reasonThinking = true
+
+				if len(reasonContent) == 0 {
+					fmt.Print("\n")
+				}
+
+				reasonContent = append(reasonContent, resp.Choices[0].Delta.Reasoning)
+				fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Reasoning)
+			}
+		}
+
+		cancelContext()
+
+		if len(chunks) > 0 {
+			fmt.Print("\n")
+
+			// REMOVING <think> TAGS FROM THE CONTENT WILL LEAVE EXTRA CRLF
+			// CHARACTERS WE NEED TO REMOVE.
+			content := strings.Join(chunks, " ")
+			content = strings.TrimLeft(content, "\n")
+
+			// WE NEED TO CHECK IF THE CONTENT IS EMPTY AFTER REMOVING CRLF.
+			if content != "" {
+
+				// WE WILL USE THIS NEW FUNCTION THAT WILL HANDLE TOKEN COUNTING.
+				conversation = a.addToConversation(reasonContent, conversation, client.D{
+					"role":    "assistant",
+					"content": content,
+				})
+			}
 		}
 	}
 
 	return nil
 }
 
-// =============================================================================
+// WE WILL ADD THIS NEW FUNCTION THAT WILL ADD MESSAGE TO THE CONVERSATION
+// HISTORY AND CALCULATE THE TOKENS USED IN THE CONVERSATION. IF WE REACH
+// THE CONTEXT WINDOW WE WILL REMOVE THE OLDEST MESSAGES.
 
-// GetWeather represents a tool that can be used to get the current weather.
-type GetWeather struct {
-	name string
-}
+// addToConversation will add new messages to the conversation history and
+// calculate the different tokens used in the conversation and display it to the
+// user. It will also check the amount of input tokens currently in history
+// and remove the oldest messages if we are over.
+func (a *Agent) addToConversation(reasoning []string, conversation []client.D, newMessages ...client.D) []client.D {
+	conversation = append(conversation, newMessages...)
 
-// NewGetWeather creates a new instance of GetWeather.
-func NewGetWeather() *GetWeather {
-	return &GetWeather{
-		name: "tool_get_current_weather",
-	}
-}
+	fmt.Print("\n")
 
-// ToolDocument defines the metadata for the tool that is provied to the model.
-func (gw *GetWeather) ToolDocument() client.D {
-	return client.D{
-		"type": "function",
-		"function": client.D{
-			"name":        gw.name,
-			"description": "Get the current weather for a location",
-			"parameters": client.D{
-				"type": "object",
-				"properties": client.D{
-					"location": client.D{
-						"type":        "string",
-						"description": "The location to get the weather for, e.g. San Francisco, CA",
-					},
-				},
-				"required": []string{"location"},
-			},
-		},
-	}
-}
-
-// Call is the function that is called by the agent to get the weather when the
-// model requests the tool with the specified parameters.
-func (gw *GetWeather) Call(ctx context.Context, toolCall client.ToolCall) (resp client.D) {
-	defer func() {
-		if r := recover(); r != nil {
-			resp = client.D{
-				"role":         "tool",
-				"tool_call_id": toolCall.ID,
-				"tool_name":    gw.name,
-				"content":      fmt.Sprintf(`{"status": "FAILED", "data": "%s"}`, r),
-			}
+	for {
+		var currentWindow int
+		for _, c := range conversation {
+			currentWindow += a.tke.TokenCount(c["content"].(string))
 		}
-	}()
 
-	// We are going to hardcode a result for now so we can test the tool.
-	// We are going to return the current weather as structured data using JSON
-	// which is easier for the model to interpret.
+		r := strings.Join(reasoning, "")
+		reasonTokens := a.tke.TokenCount(r)
 
-	location := toolCall.Function.Arguments["location"].(string)
+		totalTokens := currentWindow + reasonTokens
+		percentage := (float64(currentWindow) / float64(contextWindow)) * 100
+		of := float32(contextWindow) / float32(1024)
 
-	data := map[string]any{
-		"temperature": 28,
-		"humidity":    80,
-		"wind_speed":  10,
-		"description": fmt.Sprintln("The weather in", location, "is hot and humid"),
-	}
+		fmt.Printf("\u001b[90mTokens Total[%d] Reason[%d] Window[%d] (%.0f%% of %.0fK)\u001b[0m\n", totalTokens, reasonTokens, currentWindow, percentage, of)
 
-	info := struct {
-		Status string         `json:"status"`
-		Data   map[string]any `json:"data"`
-	}{
-		Status: "SUCCESS",
-		Data:   data,
-	}
+		// ---------------------------------------------------------------------
+		// Check if we have too many input tokens and start removing messages.
 
-	d, err := json.Marshal(info)
-	if err != nil {
-		return client.D{
-			"role":         "tool",
-			"tool_call_id": toolCall.ID,
-			"tool_name":    gw.name,
-			"content":      fmt.Sprintf(`{"status": "FAILED", "data": "%s"}`, err),
+		if currentWindow > contextWindow {
+			fmt.Print("\u001b[90mRemoving conversation history\u001b[0m\n")
+			conversation = slices.Delete(conversation, 1, 2)
+			continue
 		}
+
+		break
 	}
 
-	return client.D{
-		"role":         "tool",
-		"tool_call_id": toolCall.ID,
-		"tool_name":    gw.name,
-		"content":      string(d),
-	}
+	return conversation
 }

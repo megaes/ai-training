@@ -1,11 +1,12 @@
 // https://ampcode.com/how-to-build-an-agent
 //
-// This example shows you how add tool calling to the chat agent from
-// steps 2 and 3.
+// This example shows you how introduce "real" tooling into the coding agent
+// from step4. We will add support for reading, listing, creating, and editing
+// files.
 //
 // # Running the example:
 //
-//	$ make example10-step4
+//	$ make example10-step5
 //
 // # This requires running the following commands:
 //
@@ -58,6 +59,10 @@ func main() {
 }
 
 func run() error {
+	// -------------------------------------------------------------------------
+	// Declare a function that can accept user input which the agent will use
+	// when it's the users turn.
+
 	scanner := bufio.NewScanner(os.Stdin)
 	getUserMessage := func() (string, bool) {
 		if !scanner.Scan() {
@@ -65,6 +70,9 @@ func run() error {
 		}
 		return scanner.Text(), true
 	}
+
+	// -------------------------------------------------------------------------
+	// Construct the agent and get it started.
 
 	agent, err := NewAgent(getUserMessage)
 	if err != nil {
@@ -75,9 +83,6 @@ func run() error {
 }
 
 // =============================================================================
-
-// DECLARE A TOOL INTERFACE TO ALLOW THE AGENT TO CALL ANY TOOL FUNCTION
-// WE DEFINE WITHOUT THE AGENT KNOWING THE EXACT TOOL IT IS USING.
 
 // Tool describes the features which all tools must implement.
 type Tool interface {
@@ -91,16 +96,16 @@ type Agent struct {
 	sseClient      *client.SSEClient[client.ChatSSE]
 	getUserMessage func() (string, bool)
 	tke            *tiktoken.Tiktoken
-
-	// WE NEED TO ADD TOOL SUPPORT TO THE AGENT. WE NEED TO HAVE A SET OF
-	// TOOLS THAT THE AGENT CAN USE TO PERFORM TASKS AND THE CORRESPONDING
-	// DOCUMENTATION FOR THE MODEL.
-	tools         map[string]Tool
-	toolDocuments []client.D
+	tools          map[string]Tool
+	toolDocuments  []client.D
 }
 
 // NewAgent creates a new instance of Agent.
 func NewAgent(getUserMessage func() (string, bool)) (*Agent, error) {
+
+	// -------------------------------------------------------------------------
+	// Construct the SSE client to make model calls.
+
 	logger := func(ctx context.Context, msg string, v ...any) {
 		s := fmt.Sprintf("msg: %s", msg)
 		for i := 0; i < len(v); i = i + 2 {
@@ -111,31 +116,36 @@ func NewAgent(getUserMessage func() (string, bool)) (*Agent, error) {
 
 	sseClient := client.NewSSE[client.ChatSSE](logger)
 
+	// -------------------------------------------------------------------------
+	// Construct the tokenizer.
+
 	tke, err := tiktoken.NewTiktoken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tiktoken: %w", err)
 	}
 
-	// CONSTRUCT THE TOOLS MAP HERE BECAUSE IT IS PASSED ON TOOL CONSTRUCTION
-	// SO TOOLS CAN REGISTER THEMSELVES IN THIS MAP OF AVAILABLE TOOLS.
+	// -------------------------------------------------------------------------
+	// Construct the agent.
+
 	tools := map[string]Tool{}
 
 	agent := Agent{
 		sseClient:      sseClient,
 		getUserMessage: getUserMessage,
 		tke:            tke,
-
-		// ADD THE TOOLNG SUPPORT TO THE AGENT.
-		tools: tools,
+		tools:          tools,
 		toolDocuments: []client.D{
-			NewGetWeather(tools),
+
+			// WE NEED TO REGISTER THE NEW TOOLS WE HAVE CREATED.
+			NewReadFile(tools),
+			NewSearchFiles(tools),
+			NewCreateFile(tools),
+			NewGoCodeEditor(tools),
 		},
 	}
 
 	return &agent, nil
 }
-
-// WE NEED TO EXTEND THE SYSTEM PROMPT TO INCLUDE THE TOOLING INSTRUCTIONS.
 
 // The system prompt for the model so it behaves as expected.
 var systemPrompt = `You are a helpful coding assistant that has tools to assist
@@ -157,21 +167,22 @@ Reasoning: high
 
 // Run starts the agent and runs the chat loop.
 func (a *Agent) Run(ctx context.Context) error {
-	var conversation []client.D
-	var reasonContent []string
-
-	// WE WILL KEEP TRACK OF WHETHER WE ARE IN A TOOL CALL.
-	var inToolCall bool
+	var conversation []client.D // History of the conversation
+	var reasonContent []string  // Reasoning content per model call
+	var inToolCall bool         // Need to know we are inside a tool call request
 
 	conversation = append(conversation, client.D{
 		"role":    "system",
 		"content": systemPrompt,
 	})
 
-	fmt.Printf("Chat with %s (use 'ctrl-c' to quit)\n", model)
+	fmt.Printf("\nChat with %s (use 'ctrl-c' to quit)\n", model)
 
 	for {
-		// CHECK IF WE ARE IN A TOOL CALL BEFORE ASKING FOR INPUT.
+		// ---------------------------------------------------------------------
+		// If we are not in a tool call then we can ask the user
+		// to provide their next question or request.
+
 		if !inToolCall {
 			fmt.Print("\u001b[94m\nYou\u001b[0m: ")
 			userInput, ok := a.getUserMessage()
@@ -185,19 +196,20 @@ func (a *Agent) Run(ctx context.Context) error {
 			})
 		}
 
-		// WE NEED TO RESET THE TOOL CALL FLAG ON EACH ITERATION.
 		inToolCall = false
 
-		d := client.D{
-			"model":       model,
-			"messages":    conversation,
-			"max_tokens":  contextWindow,
-			"temperature": 0.1,
-			"top_p":       0.1,
-			"top_k":       1,
-			"stream":      true,
+		// ---------------------------------------------------------------------
+		// Now we will make a call to the model, we could be responding to a
+		// tool call or providing a user request.
 
-			// ADDING TOOL CALLING TO THE REQUEST.
+		d := client.D{
+			"model":          model,
+			"messages":       conversation,
+			"max_tokens":     contextWindow,
+			"temperature":    0.0,
+			"top_p":          0.1,
+			"top_k":          1,
+			"stream":         true,
 			"tools":          a.toolDocuments,
 			"tool_selection": "auto",
 		}
@@ -210,27 +222,34 @@ func (a *Agent) Run(ctx context.Context) error {
 		if err := a.sseClient.Do(ctx, http.MethodPost, url, d, ch); err != nil {
 			cancelContext()
 			fmt.Printf("\n\n\u001b[91mERROR:%s\u001b[0m\n\n", err)
+			inToolCall = false
 			continue
 		}
 
-		var chunks []string
+		// ---------------------------------------------------------------------
+		// Now we will make a call to the model.
 
+		var chunks []string      // Store the response chunks since we are streaming.
 		reasonThinking := false  // GPT models provide a Reasoning field.
 		contentThinking := false // Other reasoning models use <think> tags.
 		reasonContent = nil      // Reset the reasoning content for this next call.
 
 		fmt.Print("\n")
 
+		// ---------------------------------------------------------------------
+		// Process the response which comes in as chunks. So we need to process
+		// and save each chunk.
+
 		for resp := range ch {
 			switch {
 
-			// WE NEED TO CHECK IF WE ARE ASKING TO MAKE A TOOL CALL.
+			// Did the model ask us to execute a tool call?
 			case len(resp.Choices[0].Delta.ToolCalls) > 0:
+				fmt.Print("\n\n")
+
 				toolCall := resp.Choices[0].Delta.ToolCalls[0]
 
-				// ADD THE TOOL CALL TO THE CONVERSATION SO THE MODEL HAS
-				// CONTEXT OF THE TOOL CALL.
-				conversation = append(conversation, client.D{
+				conversation = a.addToConversation(reasonContent, conversation, client.D{
 					"role": "assistant",
 					"content": fmt.Sprintf("Tool call %s: %s(%v)",
 						toolCall.ID,
@@ -238,16 +257,15 @@ func (a *Agent) Run(ctx context.Context) error {
 						toolCall.Function.Arguments),
 				})
 
-				// WE NEED TO EXECUTE THE TOOL CALL.
 				results := a.callTools(ctx, resp.Choices[0].Delta.ToolCalls)
-
-				// NOW WE NEED TO CHECK IF THE TOOL CALLS PROVIDED ANY RESULTS
-				// TO ADD TO THE CONVERSATION AND MARK WE ARE IN A TOOL CALL.
 				if len(results) > 0 {
-					conversation = append(conversation, results...)
+					conversation = a.addToConversation(reasonContent, conversation, results...)
 					inToolCall = true
 				}
 
+			// Did we get content? With some models a <think> tag could exist to
+			// indicate reasoning. We need to filter that out and display it as
+			// a different color.
 			case resp.Choices[0].Delta.Content != "":
 				if reasonThinking {
 					reasonThinking = false
@@ -273,6 +291,8 @@ func (a *Agent) Run(ctx context.Context) error {
 					fmt.Printf("\u001b[91m%s\u001b[0m", resp.Choices[0].Delta.Content)
 				}
 
+			// Did we get reasoning content? ChatGPT models provide reasoning in
+			// the Delta.Reasoning field. Display it as a different color.
 			case resp.Choices[0].Delta.Reasoning != "":
 				reasonThinking = true
 
@@ -287,9 +307,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 		cancelContext()
 
-		// WE NEED TO CHECK IF WE ARE IN A TOOL CALL BECAUSE WE NEED TO GIVE THE
-		// MODEL THE RESULTS WITHOUT ANY NOISE. THE CHUNKS SHOULD BE EMPTY IN
-		// THIS CASE BUT I DON'T TRUST MODELS.
+		// ---------------------------------------------------------------------
+		// We processed all the chunks from the response so we need to add
+		// this to the conversation history.
 
 		if !inToolCall && len(chunks) > 0 {
 			fmt.Print("\n")
@@ -307,6 +327,27 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// callTools will lookup a requested tool by name and call it.
+func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []client.D {
+	var resps []client.D
+
+	for _, toolCall := range toolCalls {
+		tool, exists := a.tools[toolCall.Function.Name]
+		if !exists {
+			continue
+		}
+
+		fmt.Printf("\u001b[92mtool: %s(%v)\u001b[0m:\n", toolCall.Function.Name, toolCall.Function.Arguments)
+
+		resp := tool.Call(ctx, toolCall)
+		resps = append(resps, resp)
+
+		fmt.Printf("%#v\n", resps)
+	}
+
+	return resps
 }
 
 // addToConversation will add new messages to the conversation history and
@@ -348,33 +389,7 @@ func (a *Agent) addToConversation(reasoning []string, conversation []client.D, n
 	return conversation
 }
 
-// WE NEED A FUNCTION THAT LOOKS UP THE REQUESTED TOOL BY NAME AND CALLS IT
-// WITH THE MODEL PROVIDED PARAMETERS.
-
-// callTools will lookup a requested tool by name and call it.
-func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []client.D {
-	var resps []client.D
-
-	for _, toolCall := range toolCalls {
-		tool, exists := a.tools[toolCall.Function.Name]
-		if !exists {
-			continue
-		}
-
-		fmt.Printf("\n\n\u001b[92mtool\u001b[0m: %s(%v)\n", toolCall.Function.Name, toolCall.Function.Arguments)
-
-		resp := tool.Call(ctx, toolCall)
-		resps = append(resps, resp)
-
-		fmt.Printf("%#v\n", resps)
-	}
-
-	return resps
-}
-
 // =============================================================================
-
-// WE WILL ADD SUPPORT FOR STRUCTURED TOOL RESPONSES.
 
 // toolSuccessResponse returns a successful structured tool response.
 func toolSuccessResponse(toolID string, toolName string, values ...any) client.D {
