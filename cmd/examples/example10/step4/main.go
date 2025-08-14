@@ -360,7 +360,7 @@ func (a *Agent) callTools(ctx context.Context, toolCalls []client.ToolCall) []cl
 			continue
 		}
 
-		fmt.Printf("\n\n\u001b[92mtool\u001b[0m: %s(%v)\n", toolCall.Function.Name, toolCall.Function.Arguments)
+		fmt.Printf("\n\n\u001b[92m%s(%v)\u001b[0m:\n\n", toolCall.Function.Name, toolCall.Function.Arguments)
 
 		resp := tool.Call(ctx, toolCall)
 		resps = append(resps, resp)

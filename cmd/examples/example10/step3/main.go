@@ -132,7 +132,7 @@ func weatherQuestion(ctx context.Context) error {
 		case len(resp.Choices[0].Delta.ToolCalls) > 0:
 			toolCall := resp.Choices[0].Delta.ToolCalls[0]
 
-			fmt.Printf("\n\nModel Asking For Tool Call:\n\nToolID[%s]: %s(%s)\n\n",
+			fmt.Printf("\n\n\u001b[92mModel Asking For Tool Call:\n\nToolID[%s]: %s(%s)\u001b[0m\n\n",
 				toolCall.ID,
 				toolCall.Function.Name,
 				toolCall.Function.Arguments)
@@ -148,7 +148,7 @@ func weatherQuestion(ctx context.Context) error {
 			resp := GetWeatherTool(ctx, toolName, toolCall)
 			conversation = append(conversation, resp)
 
-			fmt.Printf("Tool Call Result:\n\n%s\n\n", resp)
+			fmt.Printf("%s\n\n", resp)
 
 		case resp.Choices[0].Delta.Content != "":
 			fmt.Print(resp.Choices[0].Delta.Content)
