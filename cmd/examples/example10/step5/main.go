@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ardanlabs/ai-training/foundation/client"
@@ -198,6 +199,29 @@ func (a *Agent) Run(ctx context.Context) error {
 		inToolCall = false
 
 		// ---------------------------------------------------------------------
+		// Let's show how long we are waiting for the model response.
+
+		start := time.Now()
+		t := time.NewTicker(100 * time.Millisecond)
+		wctx, cancel := context.WithCancel(ctx)
+
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			for {
+				select {
+				case <-t.C:
+					m := time.Since(start).Milliseconds()
+					fmt.Printf("\r\u001b[93m%s %d.%03d\u001b[0m: ", model, m/1000, m%1000)
+
+				case <-wctx.Done():
+					fmt.Print("\n")
+					cancel()
+					return
+				}
+			}
+		})
+
+		// ---------------------------------------------------------------------
 		// Now we will make a call to the model, we could be responding to a
 		// tool call or providing a user request.
 
@@ -213,7 +237,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			"tool_selection": "auto",
 		}
 
-		fmt.Printf("\u001b[93m\n%s\u001b[0m: ", model)
+		fmt.Printf("\u001b[93m\n%s\u001b[0m: 0.000", model)
 
 		ch := make(chan client.ChatSSE, 100)
 		ctx, cancelContext := context.WithTimeout(ctx, time.Minute*5)
@@ -233,13 +257,20 @@ func (a *Agent) Run(ctx context.Context) error {
 		contentThinking := false // Other reasoning models use <think> tags.
 		reasonContent = nil      // Reset the reasoning content for this next call.
 
-		fmt.Print("\n")
-
 		// ---------------------------------------------------------------------
 		// Process the response which comes in as chunks. So we need to process
 		// and save each chunk.
 
+		waitingForResponse := true
+
 		for resp := range ch {
+			if waitingForResponse {
+				time.Sleep(time.Second)
+				waitingForResponse = false
+				cancel()
+				wg.Wait()
+			}
+
 			switch {
 
 			// Did the model ask us to execute a tool call?
