@@ -339,8 +339,8 @@ func (a *Agent) addToConversation(reasoning []string, conversation []client.D, n
 
 	for {
 		var currentWindow int
-		for _, c := range conversation {
-			currentWindow += a.tke.TokenCount(c["content"].(string))
+		for _, msg := range conversation {
+			currentWindow += a.tke.TokenCount(msg["content"].(string))
 		}
 
 		r := strings.Join(reasoning, " ")
