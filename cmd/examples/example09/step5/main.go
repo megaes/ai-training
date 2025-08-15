@@ -1,5 +1,5 @@
 // This example takes step4 and shows you how to process a set of images
-// from a location on disk.
+// from a location on disk and provide search capabilities.
 //
 // # Running the example:
 //
@@ -22,10 +22,6 @@ import (
 	"time"
 
 	"github.com/ardanlabs/ai-training/foundation/mongodb"
-	"github.com/dsoprea/go-exif/v3"
-	exifcommon "github.com/dsoprea/go-exif/v3/common"
-	jpg "github.com/dsoprea/go-jpeg-image-structure/v2"
-	pis "github.com/dsoprea/go-png-image-structure/v2"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"go.mongodb.org/mongo-driver/bson"
@@ -127,9 +123,9 @@ func run() error {
 			continue
 		}
 
-		data, mimeType, err := processImage(fileName)
+		data, mimeType, err := readImage(fileName)
 		if err != nil {
-			return fmt.Errorf("process image: %w", err)
+			return fmt.Errorf("read image: %w", err)
 		}
 
 		fmt.Println("  - Generating image description")
@@ -157,15 +153,6 @@ func run() error {
 		)
 		if err != nil {
 			return fmt.Errorf("generate content: %w", err)
-		}
-
-		// -------------------------------------------------------------------------
-
-		fmt.Println("  - Updating image description")
-
-		err = updateImage(fileName, cr.Choices[0].Content)
-		if err != nil {
-			return fmt.Errorf("update image: %w", err)
 		}
 
 		// -------------------------------------------------------------------------
@@ -310,10 +297,16 @@ func getFilesFromDirectory(directoryPath string) ([]string, error) {
 	return files, nil
 }
 
-func processImage(fileName string) ([]byte, string, error) {
-	data, err := readImage(fileName)
+func readImage(fileName string) ([]byte, string, error) {
+	f, err := os.OpenFile(fileName, os.O_RDONLY, 0)
 	if err != nil {
-		return nil, "", fmt.Errorf("read image: %w", err)
+		return nil, "", fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, "", fmt.Errorf("read file: %w", err)
 	}
 
 	var mimeType string
@@ -327,91 +320,6 @@ func processImage(fileName string) ([]byte, string, error) {
 	}
 
 	return data, mimeType, nil
-}
-
-func readImage(fileName string) ([]byte, error) {
-	f, err := os.OpenFile(fileName, os.O_RDONLY, 0)
-	if err != nil {
-		return nil, fmt.Errorf("open file: %w", err)
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return nil, fmt.Errorf("read file: %w", err)
-	}
-
-	return data, nil
-}
-
-func updateImage(fileName string, description string) error {
-	im, err := exifcommon.NewIfdMappingWithStandard()
-	if err != nil {
-		return fmt.Errorf("new idf mapping: %w", err)
-	}
-
-	ti := exif.NewTagIndex()
-	ib := exif.NewIfdBuilder(im, ti, exifcommon.IfdStandardIfdIdentity, exifcommon.EncodeDefaultByteOrder)
-
-	err = ib.AddStandardWithName("ImageDescription", description)
-	if err != nil {
-		return fmt.Errorf("add standard: %w", err)
-	}
-
-	// -------------------------------------------------------------------------
-
-	switch filepath.Ext(fileName) {
-	case ".jpg", ".jpeg":
-		intfc, err := jpg.NewJpegMediaParser().ParseFile(fileName)
-		if err != nil {
-			return fmt.Errorf("parse file: %w", err)
-		}
-
-		cs := intfc.(*jpg.SegmentList)
-		err = cs.SetExif(ib)
-		if err != nil {
-			return fmt.Errorf("set ib: %w", err)
-		}
-
-		f, err := os.Create(fileName)
-		if err != nil {
-			return fmt.Errorf("create: %w", err)
-		}
-
-		err = cs.Write(f)
-		if err != nil {
-			return fmt.Errorf("write: %w", err)
-		}
-		defer f.Close()
-
-	case ".png":
-		intfc, err := pis.NewPngMediaParser().ParseFile(fileName)
-		if err != nil {
-			return fmt.Errorf("parse file: %w", err)
-		}
-
-		cs := intfc.(*pis.ChunkSlice)
-		err = cs.SetExif(ib)
-		if err != nil {
-			return fmt.Errorf("set ib: %w", err)
-		}
-
-		f, err := os.Create(fileName)
-		if err != nil {
-			return fmt.Errorf("create: %w", err)
-		}
-
-		err = cs.WriteTo(f)
-		if err != nil {
-			return fmt.Errorf("write: %w", err)
-		}
-		defer f.Close()
-
-	default:
-		return fmt.Errorf("unsupported file type: %s", filepath.Ext(fileName))
-	}
-
-	return nil
 }
 
 func vectorSearch(ctx context.Context, llm *ollama.LLM, col *mongo.Collection, question string) ([]searchResult, error) {

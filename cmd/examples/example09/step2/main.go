@@ -18,10 +18,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dsoprea/go-exif/v3"
-	exifcommon "github.com/dsoprea/go-exif/v3/common"
-	jpg "github.com/dsoprea/go-jpeg-image-structure/v2"
-	pis "github.com/dsoprea/go-png-image-structure/v2"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 )
@@ -62,9 +58,9 @@ func run() error {
 
 	// -------------------------------------------------------------------------
 
-	data, mimeType, err := processImage(imagePath)
+	data, mimeType, err := readImage(imagePath)
 	if err != nil {
-		return fmt.Errorf("process image: %w", err)
+		return fmt.Errorf("read image: %w", err)
 	}
 
 	// -------------------------------------------------------------------------
@@ -117,14 +113,6 @@ func run() error {
 
 	// -------------------------------------------------------------------------
 
-	fmt.Print("Updating Image description:\n\n")
-
-	if err := updateImage(imagePath, cr.Choices[0].Content); err != nil {
-		return fmt.Errorf("update image: %w", err)
-	}
-
-	// -------------------------------------------------------------------------
-
 	fmt.Print("Generate embeddings for the image description:\n\n")
 
 	vectors, err := llmEmbed.CreateEmbedding(ctx, []string{cr.Choices[0].Content})
@@ -138,10 +126,16 @@ func run() error {
 	return nil
 }
 
-func processImage(fileName string) ([]byte, string, error) {
-	data, err := readImage(fileName)
+func readImage(fileName string) ([]byte, string, error) {
+	f, err := os.OpenFile(fileName, os.O_RDONLY, 0)
 	if err != nil {
-		return nil, "", fmt.Errorf("read image: %w", err)
+		return nil, "", fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, "", fmt.Errorf("read file: %w", err)
 	}
 
 	var mimeType string
@@ -155,89 +149,4 @@ func processImage(fileName string) ([]byte, string, error) {
 	}
 
 	return data, mimeType, nil
-}
-
-func readImage(fileName string) ([]byte, error) {
-	f, err := os.OpenFile(fileName, os.O_RDONLY, 0)
-	if err != nil {
-		return nil, fmt.Errorf("open file: %w", err)
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return nil, fmt.Errorf("read file: %w", err)
-	}
-
-	return data, nil
-}
-
-func updateImage(fileName string, description string) error {
-	im, err := exifcommon.NewIfdMappingWithStandard()
-	if err != nil {
-		return fmt.Errorf("new idf mapping: %w", err)
-	}
-
-	ti := exif.NewTagIndex()
-	ib := exif.NewIfdBuilder(im, ti, exifcommon.IfdStandardIfdIdentity, exifcommon.EncodeDefaultByteOrder)
-
-	err = ib.AddStandardWithName("ImageDescription", description)
-	if err != nil {
-		return fmt.Errorf("add standard: %w", err)
-	}
-
-	// -------------------------------------------------------------------------
-
-	switch filepath.Ext(fileName) {
-	case ".jpg", ".jpeg":
-		intfc, err := jpg.NewJpegMediaParser().ParseFile(fileName)
-		if err != nil {
-			return fmt.Errorf("parse file: %w", err)
-		}
-
-		cs := intfc.(*jpg.SegmentList)
-		err = cs.SetExif(ib)
-		if err != nil {
-			return fmt.Errorf("set ib: %w", err)
-		}
-
-		f, err := os.Create(fileName)
-		if err != nil {
-			return fmt.Errorf("create: %w", err)
-		}
-
-		err = cs.Write(f)
-		if err != nil {
-			return fmt.Errorf("write: %w", err)
-		}
-		defer f.Close()
-
-	case ".png":
-		intfc, err := pis.NewPngMediaParser().ParseFile(fileName)
-		if err != nil {
-			return fmt.Errorf("parse file: %w", err)
-		}
-
-		cs := intfc.(*pis.ChunkSlice)
-		err = cs.SetExif(ib)
-		if err != nil {
-			return fmt.Errorf("set ib: %w", err)
-		}
-
-		f, err := os.Create(fileName)
-		if err != nil {
-			return fmt.Errorf("create: %w", err)
-		}
-
-		err = cs.WriteTo(f)
-		if err != nil {
-			return fmt.Errorf("write: %w", err)
-		}
-		defer f.Close()
-
-	default:
-		return fmt.Errorf("unsupported file type: %s", filepath.Ext(fileName))
-	}
-
-	return nil
 }
