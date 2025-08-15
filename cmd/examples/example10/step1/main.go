@@ -143,6 +143,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		var chunks []string
 
 		for resp := range ch {
+			if len(resp.Choices) == 0 {
+				continue
+			}
+
 			switch {
 			case resp.Choices[0].Delta.Content != "":
 				fmt.Print(resp.Choices[0].Delta.Content)

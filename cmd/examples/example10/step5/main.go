@@ -265,6 +265,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		waitingForResponse := true
 
 		for resp := range ch {
+			if len(resp.Choices) == 0 {
+				continue
+			}
 
 			// Check if this is the first response. If it is, we will shutdown
 			// the G displaying the latency.

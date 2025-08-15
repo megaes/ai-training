@@ -162,6 +162,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		fmt.Print("\n")
 
 		for resp := range ch {
+			if len(resp.Choices) == 0 {
+				continue
+			}
+
 			switch {
 			case resp.Choices[0].Delta.Content != "":
 
