@@ -313,12 +313,11 @@ func vectorSearch(ctx context.Context, llm *ollama.LLM, col *mongo.Collection, q
 		{{
 			Key: "$vectorSearch",
 			Value: bson.M{
-				"index":         "vector_index",
-				"exact":         false,
-				"path":          "embedding",
-				"queryVector":   embedding[0],
-				"numCandidates": 5,
-				"limit":         5,
+				"index":       "vector_index",
+				"exact":       true,
+				"path":        "embedding",
+				"queryVector": embedding[0],
+				"limit":       5,
 			}},
 		},
 		{{

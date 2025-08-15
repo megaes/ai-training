@@ -166,8 +166,7 @@ func vectorSearch(ctx context.Context, col *mongo.Collection, vector []float64, 
 			{
 				"$vectorSearch": {
 					"index": "vector_index",
-					"exact": false,
-					"numCandidates": 10,
+					"exact": true,
 					"path": "embedding",
 					"queryVector": [1.2, 2.2, 3.2, 4.2],
 					"limit": 10
@@ -192,12 +191,11 @@ func vectorSearch(ctx context.Context, col *mongo.Collection, vector []float64, 
 		{{
 			Key: "$vectorSearch",
 			Value: bson.M{
-				"index":         "vector_index",
-				"exact":         false,
-				"path":          "embedding",
-				"queryVector":   vector,
-				"numCandidates": limit,
-				"limit":         limit,
+				"index":       "vector_index",
+				"exact":       true,
+				"path":        "embedding",
+				"queryVector": vector,
+				"limit":       limit,
 			}},
 		},
 		{{

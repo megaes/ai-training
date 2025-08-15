@@ -5,9 +5,6 @@ go 1.25.0
 require (
 	code.sajari.com/docconv/v2 v2.0.0-pre.4
 	github.com/dlclark/regexp2 v1.11.5
-	github.com/dsoprea/go-exif/v3 v3.0.1
-	github.com/dsoprea/go-jpeg-image-structure/v2 v2.0.0-20221012074422-4f3f7e934102
-	github.com/dsoprea/go-png-image-structure/v2 v2.0.0-20210512210324-29b889a6093d
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/modelcontextprotocol/go-sdk v0.2.0
@@ -23,17 +20,10 @@ require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dsoprea/go-iptc v0.0.0-20200610044640-bc9ca208b413 // indirect
-	github.com/dsoprea/go-logging v0.0.0-20200710184922-b02d349568dd // indirect
-	github.com/dsoprea/go-photoshop-info-format v0.0.0-20200610045659-121dd752914d // indirect
-	github.com/dsoprea/go-utility/v2 v2.0.0-20221003172846-a3e1774ef349 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fatih/set v0.2.1 // indirect
 	github.com/gigawattio/window v0.0.0-20180317192513-0f5467e35573 // indirect
-	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-resty/resty/v2 v2.16.5 // indirect
-	github.com/go-xmlfmt/xmlfmt v1.1.3 // indirect
-	github.com/golang/geo v0.0.0-20250813021530-247f39904721 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -66,6 +56,5 @@ require (
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	google.golang.org/protobuf v1.36.7 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
